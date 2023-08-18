@@ -5,11 +5,16 @@ from typing import List, Optional, Union
 import mmcv
 import mmengine
 import numpy as np
+import tensorflow as tf
+from tensorflow import Tensor
 from mmcv.transforms import LoadImageFromFile
 from mmcv.transforms.base import BaseTransform
 from mmdet.datasets.transforms import LoadAnnotations
 from mmengine.fileio import get
+from waymo_open_dataset.utils import frame_utils
+from waymo_open_dataset import dataset_pb2 as open_dataset
 
+from mmdet3d.structures import LiDARInstance3DBoxes
 from mmdet3d.registry import TRANSFORMS
 from mmdet3d.structures.bbox_3d import get_box_type
 from mmdet3d.structures.points import BasePoints, get_points_type
@@ -1327,3 +1332,308 @@ class MultiModalityDet3DInferencerLoader(BaseTransform):
         multi_modality_inputs.update(imgs_inputs)
 
         return multi_modality_inputs
+
+
+@TRANSFORMS.register_module()
+class LoadWaymoFrame(BaseTransform):
+    """
+    """
+
+    def __init__(self,
+                 coord_type: str = 'LIDAR',
+                 use_dim: Union[int, List[int]] = [0, 1, 2, 3, 4],
+                 shift_height: bool = False,
+                 norm_intensity: bool = False,
+                 norm_elongation: bool = False,
+                 used_lasers: List = [open_dataset.LaserName.TOP],
+                 nlz_points: bool = False,
+                 range_images: bool = False,
+                 range_image_masks: bool = False,
+                 use_ri2: bool = False,
+                 filter_nlz_points: bool = False,
+
+                 target_classes: List = ['Car', 'Pedestrian', 'Cyclist'],
+                 with_bbox_3d: bool = True,
+                 with_label_3d: bool = True,
+                 with_attr_label: bool = False,
+                 with_mask_3d: bool = False,
+                 with_seg_3d: bool = False,
+                 with_bbox: bool = False,
+                 with_label: bool = False,
+                 with_mask: bool = False,
+                 with_seg: bool = False,
+                 with_bbox_depth: bool = False,
+                 with_panoptic_3d: bool = False,
+                 seg_3d_dtype: str = 'np.int64',
+                 seg_offset: int = None):
+        """
+        """
+        super().__init__()
+        self.kitti_classes = ['Car', 'Pedestrian', 'Cyclist']
+        self.class_mapping = {
+            'UNKNOWN': 'DontCare',
+            'PEDESTRIAN': 'Pedestrian',
+            'CYCLIST': 'Cyclist',
+            'VEHICLE': 'Car',
+            'SIGN': 'Sign'
+        }
+        self.type_list = [
+            'UNKNOWN', 'VEHICLE', 'PEDESTRIAN', 'SIGN', 'CYCLIST'
+        ]
+
+        if isinstance(use_dim, int):
+            use_dim = list(range(use_dim))
+        assert coord_type in ['LIDAR']#['CAMERA', 'LIDAR', 'DEPTH']
+
+        self.coord_type = coord_type
+        self.use_dim = use_dim
+        self.norm_intensity = norm_intensity
+        self.norm_elongation = norm_elongation
+        self.shift_height = shift_height # not implemented
+
+        self.used_lasers = used_lasers
+        self.range_images = range_images
+        self.nlz_points = nlz_points
+        self.range_image_masks = range_image_masks
+        self.use_ri2 = use_ri2
+        self.filter_nlz_points = filter_nlz_points
+
+        for c in target_classes:
+            assert c in self.kitti_classes
+        self.target_classes = target_classes
+        self.with_bbox_3d = with_bbox_3d
+        self.with_label_3d = with_label_3d
+        self.with_attr_label = with_attr_label
+        self.with_mask_3d = with_mask_3d
+        self.with_seg_3d = with_seg_3d
+        self.with_bbox = with_bbox
+        self.with_label = with_label
+        self.with_mask = with_mask
+        self.with_seg = with_seg
+        self.with_bbox_depth = with_bbox_depth
+        self.with_panoptic_3d = with_panoptic_3d
+        self.seg_3d_dtype = seg_3d_dtype
+        self.seg_offset = seg_offset
+
+    def _load_bbox_depth(self, results, frame_label):
+        """
+        TODO
+        """
+        pass
+
+    def _load_seg_2d(self, results, frame_label):
+        """
+        TODO
+        """
+        pass
+
+    def _load_mask_2d(self, results, frame_label):
+        """
+        TODO
+        """
+        pass
+
+    def _load_label_2d(self, results, frame_label):
+        """
+        TODO
+        """
+        pass
+
+    def _load_bbox_2d(self, results, frame_label):
+        """
+        TODO
+        """
+        pass
+
+    def _load_bboxes_2d(self, results, frame_label):
+        """
+        TODO
+        """
+        pass
+
+    def _load_seg_3d(self, results, frame):
+        """
+        TODO
+        """
+        pass
+
+    def _load_masks_3d(self, results, frame):
+        """
+        TODO
+        """
+        pass
+
+    def _load_bboxes_3d(self, gt_bboxes_3d, frame_label):
+        """
+        """
+        if self.class_mapping[self.type_list[frame_label.type]] in self.target_classes:
+            gt_bboxes_3d.append([frame_label.box.center_x,
+                                 frame_label.box.center_y,
+                                 frame_label.box.center_z-frame_label.box.height/2,
+                                 frame_label.box.length,
+                                 frame_label.box.width,
+                                 frame_label.box.height,
+                                 frame_label.box.heading])
+        return gt_bboxes_3d
+
+    def _load_label_3d(self, gt_labels_3d, frame_label):
+        """
+        """
+        if self.class_mapping[self.type_list[frame_label.type]] in self.target_classes:
+            kitti_label = self.class_mapping[self.type_list[frame_label.type]]
+            gt_labels_3d.append(self.kitti_classes.index(kitti_label))
+        return gt_labels_3d
+
+    def _load_attr_label(self, attr_labels, frame_label):
+        """
+        TODO
+        """
+        pass
+
+    def _parse_projected_lidar_labels(self, results, projected_lidar_labels):
+        """
+        TODO
+        """
+        return results
+
+    def _parse_laser_labels(self, results, laser_labels):
+        """
+        """
+        for label in laser_labels:
+            if self.with_bbox_3d:
+                results['gt_bboxes_3d'] = self._load_bboxes_3d(
+                    results.get('gt_bboxes_3d', []), label)
+            if self.with_label_3d:
+                results['gt_labels_3d'] = self._load_label_3d(
+                    results.get('gt_labels_3d', []), label)
+        if self.with_bbox_3d:
+            results['gt_bboxes_3d'] = LiDARInstance3DBoxes(results['gt_bboxes_3d'])
+        if self.class_mapping:
+            results['gt_labels_3d'] = np.asarray(results['gt_labels_3d'], np.int64)
+        return results
+
+    def _load_labels(self, results, frame):
+        """
+        """
+        results = self._parse_projected_lidar_labels(results,
+            frame.projected_lidar_labels)
+        results = self._parse_laser_labels(results, frame.laser_labels)
+        return results
+
+    def _load_frame_inputs(self, results, frame):
+        """
+        Should be quite optimized..
+        -- WORST CASE SCENARIO --
+        - Range images are converted to TF 3 times
+        - Range images are being processed around 2 times (
+            1- projection, transformation
+            2- masking, sum)
+        """
+        i = 0
+        frame.lasers.sort(key=lambda laser: laser.name)
+        (range_images, camera_projections,
+         seg_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(
+            frame)
+
+        points_0, _ = frame_utils.convert_range_image_to_point_cloud(
+            frame,
+            range_images,
+            camera_projections,
+            range_image_top_pose,
+            ri_index=0,
+            keep_polar_features=True)
+        points_0 = [points_0[l-1] for l in self.used_lasers]
+        results['points'] = np.concatenate(points_0, axis=0) # (range, intensity, elongation, x, y, z)
+
+        if self.use_ri2:
+            points_1, _ = frame_utils.convert_range_image_to_point_cloud(
+                frame,
+                range_images,
+                camera_projections,
+                range_image_top_pose,
+                ri_index=1,
+                keep_polar_features=True)
+            points_1 = [points_1[l-1] for l in self.used_lasers]
+            points_1 = np.concatenate(points_1, axis=0)
+            results['points'] = np.concatenate([results['points'], points_1])
+
+        range_images = dict(
+            [(k, range_images[k]) for k in self.used_lasers]
+        )
+        camera_projections = dict(
+            [(k, camera_projections[k]) for k in self.used_lasers]
+        )
+
+        if self.range_image_masks or self.filter_nlz_points or self.nlz_points:
+            if self.range_image_masks:
+                mask_index = np.full_like(results['points'][:, 0], -1)
+            if self.filter_nlz_points or self.nlz_points:
+                nlz_points = np.full_like(results['points'][:, 0], -1)
+            for laser_name in range_images.keys():
+                offset = 0
+                for ri in [0, 1]:
+                    if ri == 1 and not self.use_ri2:
+                        break
+                    range_image = range_images[laser_name][ri]
+                    range_image_tensor = tf.reshape(
+                        tf.convert_to_tensor(value=range_image.data),
+                    range_image.shape.dims)
+                    range_image_mask = range_image_tensor[..., 0] > 0
+                    of_dif = tf.sum(range_image_mask)
+                    if self.filter_nlz_points or self.nlz_points:
+                        nlz_points[offset: offset+of_dif] = range_image[range_image_mask: -1]
+                    if self.range_image_masks and laser_name == open_dataset.LaserName.TOP:
+                        cur_mask_index = tf.where(range_image_mask)
+                        cur_mask_index = (ri * range_image_mask.shape[0] +
+                            cur_mask_index[:, 0]
+                            ) * range_image_mask.shape[1] + cur_mask_index[:, 1]
+                        mask_index[offset: offset+of_dif
+                                ] = cur_mask_index
+                    offset += of_dif
+
+
+            if self.range_image_masks:
+                results['range_index'] = mask_index
+            if self.filter_nlz_points:
+                results['nlz_points'] = nlz_points
+            if self.nlz_points:
+                for k in ['points', 'range_index', 'nlz_points']:
+                    if k not in results.keys():
+                        continue
+                    results[k] = results[k][nlz_points!=1]
+
+        results['points'] = results['points'][:, [3, 4, 5, 1, 2, 0]][:, self.use_dim]
+        if self.norm_intensity:
+            assert 3 in self.use_dim
+            results['points'][:, self.use_dim.index(3)] = np.tanh(results['points'][:, self.use_dim.index(3)])
+        if self.norm_elongation:
+            assert 4 in self.use_dim
+            results['points'][:, self.use_dim.index(4)] = np.tanh(results['points'][:, self.use_dim.index(4)])
+
+        points_class = get_points_type(self.coord_type)
+        results['points'] = points_class(
+            results['points'], points_dim=results['points'].shape[-1])
+
+        if self.range_images:
+            for k, v in range_image:
+                range_image[k] = []
+                range_image[k].append(tf.reshape(
+                        tf.convert_to_tensor(value=v[0].data),
+                    range_image.shape.dims)).numpy()
+                if self.use_ri2:
+                    range_image[k].append(tf.reshape(
+                        tf.convert_to_tensor(value=v[1].data),
+                    range_image.shape.dims)).numpy()
+            results['range_images'] = range_images
+        return results
+
+    def transform(self, frame_buffer: Tensor) -> dict:
+        """
+        """
+        results = {}
+        frame = open_dataset.Frame()
+        frame.ParseFromString(bytearray(frame_buffer.numpy()))
+        
+        results = self._load_frame_inputs(results, frame)
+        results = self._load_labels(results, frame)
+        return results
