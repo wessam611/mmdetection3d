@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import os
+import math
 import itertools
 from typing import Callable, List, Union, Optional
 
@@ -36,9 +37,9 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
                  mode: str = 'train',
                  domain_adaptation: bool = False,
                  shuffle: bool = True,
-                 shuffle_size: int = 50,
-                 buffer_size: int = 100,
-                 num_parallel_reads: int = 10,
+                 shuffle_size: int = 10,
+                 buffer_size: int = 10,
+                 num_parallel_reads: int = 3,
                  pipeline: List[Union[dict, Callable]] = [],
                  modality: dict = dict(use_lidar=True, use_camera=False),
                  default_cam_key: str = None,
@@ -77,11 +78,10 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
         self.shuffle = shuffle
         self.shuffle_size = shuffle_size
         self.filter_empty_gt = filter_empty_gt
-        self.torch_ds = self._build_torch_dataset_iter()
 
-    def _build_torch_dataset_iter(self):
+    def _build_torch_dataset_iter(self, train_files):
 
-        ds = tf.data.TFRecordDataset(self.train_files,
+        ds = tf.data.TFRecordDataset(train_files,
                                      buffer_size=self.buffer_size,
                                      num_parallel_reads=self.num_parallel_reads,
                                      compression_type="")
@@ -96,9 +96,15 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
     def __iter__(self):
         """
         """
-        worker_total_num = torch.utils.data.get_worker_info().num_workers
-        worker_id = torch.utils.data.get_worker_info().id
-        return itertools.islice(self.torch_ds, worker_id, None, worker_total_num)
+        try:
+            worker_total_num = torch.utils.data.get_worker_info().num_workers
+            worker_id = torch.utils.data.get_worker_info().id
+            files_no = math.ceil(len(self.train_files)/worker_total_num)
+            files = self.train_files[files_no*worker_id:min(files_no*(worker_id+1), len(self.train_files))]
+        except Exception as e:
+            files = self.train_files
+        self.torch_ds = self._build_torch_dataset_iter(files)
+        return iter(self.torch_ds)
     
     def __len__(self) -> int:
         return int(1e7)

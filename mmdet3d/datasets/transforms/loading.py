@@ -12,6 +12,7 @@ from mmcv.transforms.base import BaseTransform
 from mmdet.datasets.transforms import LoadAnnotations
 from mmengine.fileio import get
 from waymo_open_dataset.utils import frame_utils
+from .waymo_utils import convert_range_image_to_point_cloud
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
 from mmdet3d.structures import LiDARInstance3DBoxes
@@ -1535,7 +1536,7 @@ class LoadWaymoFrame(BaseTransform):
          seg_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(
             frame)
 
-        points_0, _ = frame_utils.convert_range_image_to_point_cloud(
+        points_0, _ = convert_range_image_to_point_cloud(
             frame,
             range_images,
             camera_projections,
@@ -1546,7 +1547,7 @@ class LoadWaymoFrame(BaseTransform):
         results['points'] = np.concatenate(points_0, axis=0) # (range, intensity, elongation, x, y, z)
 
         if self.use_ri2:
-            points_1, _ = frame_utils.convert_range_image_to_point_cloud(
+            points_1, _ = convert_range_image_to_point_cloud(
                 frame,
                 range_images,
                 camera_projections,
@@ -1633,7 +1634,6 @@ class LoadWaymoFrame(BaseTransform):
         results = {}
         frame = open_dataset.Frame()
         frame.ParseFromString(bytearray(frame_buffer.numpy()))
-        
         results = self._load_frame_inputs(results, frame)
         results = self._load_labels(results, frame)
         return results
