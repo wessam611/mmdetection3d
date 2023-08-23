@@ -1626,6 +1626,9 @@ class LoadWaymoFrame(BaseTransform):
                         tf.convert_to_tensor(value=v[1].data),
                     range_image.shape.dims)).numpy()
             results['range_images'] = range_images
+        self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
+        results['box_type_3d'] = self.box_type_3d
+        results['box_mode_3d'] = self.box_mode_3d
         return results
 
     def transform(self, frame_buffer: Tensor) -> dict:
@@ -1636,4 +1639,5 @@ class LoadWaymoFrame(BaseTransform):
         frame.ParseFromString(bytearray(frame_buffer.numpy()))
         results = self._load_frame_inputs(results, frame)
         results = self._load_labels(results, frame)
+        results['sample_idx'] = -1
         return results

@@ -55,8 +55,29 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
             ], f'GCS bucket version {cloud_bucket_version} is not supported'
         assert not domain_adaptation, 'domain adaptation is not yet supported'
         assert mode in ['train', 'val', 'test']
+        mode_folders = {'train': 'training',
+                        'val': 'validation',
+                        'test': 'testing'}
+        cloud_bucket = tfds.core.Path(
+            f'gs://waymo_open_dataset_{cloud_bucket_version}/'
+        )
         self.mode = mode
         self._fully_initialized = True
+        self.val_divs = val_divs
+        self.repeat = repeat
+
+        self.bucket_files = tf.io.gfile.glob(
+            os.path.join(
+                cloud_bucket, f'individual_files/{mode_folders[self.mode]}/segment*'
+            )
+        )
+        self.used_files = self.bucket_files
+        if self.mode != 'train' and self.val_divs > 1:
+            partition_index = random.randint(0, self.val_divs-1)
+            files_no = math.ceil(len(self.used_files)/self.val_divs)
+            self.used_files = self.used_files[files_no*partition_index:min(files_no*(partition_index+1), len(self.used_files))]
+        self._len_used_files = len(self.used_files)
+
         Det3DDataset.__init__(self,
                               pipeline=pipeline,
                               modality=modality,
@@ -66,28 +87,11 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
                               show_ins_var=show_ins_var,
                               **kwargs)
 
-        mode_folders = {'train': 'training',
-                        'val': 'validation',
-                        'test': 'testing'}
-        cloud_bucket = tfds.core.Path(
-            f'gs://waymo_open_dataset_{cloud_bucket_version}/'
-        )
-        self.bucket_files = tf.io.gfile.glob(
-            os.path.join(
-                cloud_bucket, f'individual_files/{mode_folders[self.mode]}/segment*'
-            )
-        )[:1]
-
         self.buffer_size = buffer_size
         self.num_parallel_reads = num_parallel_reads
         self.shuffle = shuffle
         self.shuffle_size = shuffle_size
         self.filter_empty_gt = filter_empty_gt
-        self.repeat = repeat
-        self.val_divs = val_divs
-        
-        self._len_used_files = len(self.bucket_files)
-        
 
     def _build_torch_dataset_iter(self, bucket_files):
 
@@ -95,7 +99,7 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
                                      buffer_size=self.buffer_size,
                                      num_parallel_reads=self.num_parallel_reads,
                                      compression_type="")
-        
+
         if self.repeat:
             ds = ds.repeat()
         torch_ds = IterableWrapper(ds)
@@ -105,31 +109,23 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
     def __iter__(self):
         """
         """
-        used_files = self.bucket_files
-        if self.mode != 'train' and self.val_divs > 1:
-            partition_index = random.randint(0, 4)
-            files_no = math.ceil(len(used_files)/self.val_divs)
-            used_files = used_files[files_no*partition_index:min(files_no*(partition_index+1), len(used_files))]
-        self._len_used_files = len(used_files)
         try:
             worker_total_num = torch.utils.data.get_worker_info().num_workers
             worker_id = torch.utils.data.get_worker_info().id
-            previous_files = math.round(worker_id*len(used_files)/worker_total_num)
-            files_no = math.round(len(used_files-previous_files)/(worker_total_num-worker_id))
-            files = used_files[files_no*worker_id:min(files_no*(worker_id+1), len(used_files))]
+            previous_files = math.round(worker_id*len(self.used_files)/worker_total_num)
+            files_no = math.round(len(self.used_files-previous_files)/(worker_total_num-worker_id))
+            files = self.used_files[files_no*worker_id:min(files_no*(worker_id+1), len(self.used_files))]
         except Exception as e:
-            files = self.bucket_files
+            files = self.used_files
         self.torch_ds = self._build_torch_dataset_iter(files)
-        return iter(self.torch_ds)
-    
+
+        if not (self.filter_empty_gt and self.mode == 'train'):
+            return iter(self.torch_ds)
+        for elem in self.torch_ds:
+            if len(elem['data_samples'].gt_instances_3d):
+                yield elem
+
     def __len__(self) -> int:
         if self.repeat:
             return int(1e9)
         return self._len_used_files*200
-
-    @staticmethod
-    def _filter_empty_gt_fn(elem):
-        """
-        TODO: 
-        """
-        return True
