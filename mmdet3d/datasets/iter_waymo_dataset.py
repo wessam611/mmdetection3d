@@ -3,7 +3,7 @@ import os
 import math
 import random
 import itertools
-from typing import Callable, List, Union, Optional
+from typing import Callable, List, Union, Optional, Iterable
 
 import tensorflow as tf
 tf.config.experimental.set_visible_devices([], 'GPU')
@@ -94,7 +94,7 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
         self.filter_empty_gt = filter_empty_gt
         torch.multiprocessing.set_sharing_strategy('file_system')
 
-    def _build_torch_dataset_iter(self, bucket_files):
+    def _build_torch_dataset_iter(self, bucket_files) -> Iterable:
         ds = tf.data.TFRecordDataset(bucket_files,
                                      buffer_size=self.buffer_size,
                                      num_parallel_reads=self.num_parallel_reads,
@@ -106,7 +106,7 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
         torch_ds = torch_ds.map(self.pipeline)
         return torch_ds
 
-    def __iter__(self):
+    def __iter__(self) -> dict:
         """
         """
         try:

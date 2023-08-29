@@ -1,6 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Num, Integer
 
 import mmcv
 import mmengine
@@ -1416,104 +1416,105 @@ class LoadWaymoFrame(BaseTransform):
         self.seg_3d_dtype = seg_3d_dtype
         self.seg_offset = seg_offset
 
-    def _load_bbox_depth(self, results, frame_label):
+    def _load_bbox_depth(self, results, frame_label) -> dict:
         """
         TODO
         """
         pass
 
-    def _load_seg_2d(self, results, frame_label):
+    def _load_seg_2d(self, results, frame_label) -> dict:
         """
         TODO
         """
         pass
 
-    def _load_mask_2d(self, results, frame_label):
+    def _load_mask_2d(self, results, frame_label) -> dict:
         """
         TODO
         """
         pass
 
-    def _load_label_2d(self, results, frame_label):
+    def _load_label_2d(self, results, frame_label) -> dict:
         """
         TODO
         """
         pass
 
-    def _load_bbox_2d(self, results, frame_label):
+    def _load_bbox_2d(self, results, frame_label) -> dict:
         """
         TODO
         """
         pass
 
-    def _load_bboxes_2d(self, results, frame_label):
+    def _load_bboxes_2d(self, results, frame_label) -> dict:
         """
         TODO
         """
         pass
 
-    def _load_seg_3d(self, results, frame):
+    def _load_seg_3d(self, results, frame) -> dict:
         """
         TODO
         """
         pass
 
-    def _load_masks_3d(self, results, frame):
+    def _load_masks_3d(self, results, frame) -> dict:
         """
         TODO
         """
         pass
 
-    def _load_bboxes_3d(self, gt_bboxes_3d, frame_label):
+    def _load_bboxes_3d(self, gt_bboxes_3d, frame_label) -> dict:
         """
         """
-        if self.class_mapping[self.type_list[frame_label.type]] in self.target_classes:
-            gt_bboxes_3d.append([frame_label.box.center_x,
-                                 frame_label.box.center_y,
-                                 frame_label.box.center_z-frame_label.box.height/2,
-                                 frame_label.box.length,
-                                 frame_label.box.width,
-                                 frame_label.box.height,
-                                 frame_label.box.heading])
+        gt_bboxes_3d.append([frame_label.box.center_x,
+                                frame_label.box.center_y,
+                                frame_label.box.center_z-frame_label.box.height/2,
+                                frame_label.box.length,
+                                frame_label.box.width,
+                                frame_label.box.height,
+                                frame_label.box.heading])
         return gt_bboxes_3d
 
-    def _load_label_3d(self, gt_labels_3d, frame_label):
+    def _load_label_3d(self, gt_labels_3d, frame_label) -> dict:
         """
         """
-        if self.class_mapping[self.type_list[frame_label.type]] in self.target_classes:
-            kitti_label = self.class_mapping[self.type_list[frame_label.type]]
-            gt_labels_3d.append(self.kitti_classes.index(kitti_label))
+        kitti_label = self.class_mapping[self.type_list[frame_label.type]]
+        gt_labels_3d.append(self.kitti_classes.index(kitti_label))
         return gt_labels_3d
 
-    def _load_attr_label(self, attr_labels, frame_label):
+    def _load_attr_label(self, attr_labels, frame_label) -> dict:
         """
         TODO
         """
         pass
 
-    def _parse_projected_lidar_labels(self, results, projected_lidar_labels):
+    def _parse_projected_lidar_labels(self, results, projected_lidar_labels) -> dict:
         """
         TODO
         """
         return results
 
-    def _parse_laser_labels(self, results, laser_labels):
+    def _parse_laser_labels(self, results, laser_labels) -> dict:
         """
         """
-        for label in laser_labels:
-            if self.with_bbox_3d:
-                results['gt_bboxes_3d'] = self._load_bboxes_3d(
-                    results.get('gt_bboxes_3d', []), label)
-            if self.with_label_3d:
-                results['gt_labels_3d'] = self._load_label_3d(
-                    results.get('gt_labels_3d', []), label)
+        in_targets = lambda _type: self.class_mapping[self.type_list[_type]] in self.target_classes
         if self.with_bbox_3d:
+            for label in laser_labels:
+                if in_targets(label.type):
+                    results['gt_bboxes_3d'] = self._load_bboxes_3d(
+                        results.get('gt_bboxes_3d', []), label)
             results['gt_bboxes_3d'] = LiDARInstance3DBoxes(results.get('gt_bboxes_3d', []))
-        if self.class_mapping:
+        
+        if self.with_label_3d:
+            for label in laser_labels:
+                if in_targets(label.type):
+                    results['gt_labels_3d'] = self._load_label_3d(
+                        results.get('gt_labels_3d', []), label)
             results['gt_labels_3d'] = np.asarray(results.get('gt_labels_3d', []), np.int64)
         return results
 
-    def _load_labels(self, results, frame):
+    def _load_labels(self, results, frame) -> dict:
         """
         """
         results = self._parse_projected_lidar_labels(results,
@@ -1521,7 +1522,7 @@ class LoadWaymoFrame(BaseTransform):
         results = self._parse_laser_labels(results, frame.laser_labels)
         return results
 
-    def _load_frame_inputs(self, results, frame):
+    def _load_frame_inputs(self, results, frame) -> dict:
         """
         Should be quite optimized..
         -- WORST CASE SCENARIO --
@@ -1628,6 +1629,7 @@ class LoadWaymoFrame(BaseTransform):
         self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
         results['box_type_3d'] = self.box_type_3d
         results['box_mode_3d'] = self.box_mode_3d
+
         return results
 
     def transform(self, frame_buffer: Tensor) -> dict:

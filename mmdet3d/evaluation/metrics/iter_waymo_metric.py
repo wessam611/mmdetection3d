@@ -170,7 +170,7 @@ class IterWaymoMetric(WaymoMetric):
         return final_results, None
 
     def parse_objects(self, instances, context_name,
-                      frame_timestamp_micros, objects_ret):
+                      frame_timestamp_micros, objects_ret) -> None:
         """Parse one prediction with several instances in kitti format and
         convert them to `Object` proto.
 
