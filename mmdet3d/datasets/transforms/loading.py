@@ -1508,9 +1508,9 @@ class LoadWaymoFrame(BaseTransform):
                 results['gt_labels_3d'] = self._load_label_3d(
                     results.get('gt_labels_3d', []), label)
         if self.with_bbox_3d:
-            results['gt_bboxes_3d'] = LiDARInstance3DBoxes(results['gt_bboxes_3d'])
+            results['gt_bboxes_3d'] = LiDARInstance3DBoxes(results.get('gt_bboxes_3d', []))
         if self.class_mapping:
-            results['gt_labels_3d'] = np.asarray(results['gt_labels_3d'], np.int64)
+            results['gt_labels_3d'] = np.asarray(results.get('gt_labels_3d', []), np.int64)
         return results
 
     def _load_labels(self, results, frame):
@@ -1530,7 +1530,6 @@ class LoadWaymoFrame(BaseTransform):
             1- projection, transformation
             2- masking, sum)
         """
-        i = 0
         frame.lasers.sort(key=lambda laser: laser.name)
         (range_images, camera_projections,
          seg_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(
@@ -1632,7 +1631,14 @@ class LoadWaymoFrame(BaseTransform):
         return results
 
     def transform(self, frame_buffer: Tensor) -> dict:
-        """
+        """Transforms waymo Frame buffer string to dictionary of input data
+        and labels
+
+        Args:
+            frame_buffer (Tensor): buffer string representing current frame
+
+        Returns:
+            dict: the results dict containing the result data and labels
         """
         results = {}
         frame = open_dataset.Frame()
@@ -1640,4 +1646,7 @@ class LoadWaymoFrame(BaseTransform):
         results = self._load_frame_inputs(results, frame)
         results = self._load_labels(results, frame)
         results['sample_idx'] = -1
+        results['context'] = frame.context.name
+        results['timestamp_micros'] = frame.timestamp_micros
+
         return results

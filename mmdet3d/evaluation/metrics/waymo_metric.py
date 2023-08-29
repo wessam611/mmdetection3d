@@ -139,8 +139,9 @@ class WaymoMetric(KittiMetric):
 
         # load annotations
         self.data_infos = load(self.ann_file)['data_list']
-        assert len(results) == len(self.data_infos), \
-            'invalid list length of network outputs'
+        # COMMENTED OUT FOR ITER LOADING
+        # assert len(results) == len(self.data_infos), \
+        #     'invalid list length of network outputs'
         # different from kitti, waymo do not need to convert the ann file
         # handle the mv_image_based load_mode
         if self.load_type == 'mv_image_based':

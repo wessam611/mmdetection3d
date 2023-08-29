@@ -92,9 +92,9 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
         self.shuffle = shuffle
         self.shuffle_size = shuffle_size
         self.filter_empty_gt = filter_empty_gt
+        torch.multiprocessing.set_sharing_strategy('file_system')
 
     def _build_torch_dataset_iter(self, bucket_files):
-
         ds = tf.data.TFRecordDataset(bucket_files,
                                      buffer_size=self.buffer_size,
                                      num_parallel_reads=self.num_parallel_reads,
@@ -112,20 +112,18 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
         try:
             worker_total_num = torch.utils.data.get_worker_info().num_workers
             worker_id = torch.utils.data.get_worker_info().id
-            previous_files = math.round(worker_id*len(self.used_files)/worker_total_num)
-            files_no = math.round(len(self.used_files-previous_files)/(worker_total_num-worker_id))
-            files = self.used_files[files_no*worker_id:min(files_no*(worker_id+1), len(self.used_files))]
+            previous_files = round(worker_id*len(self.used_files)/worker_total_num)
+            files_no = round((len(self.used_files)-previous_files)/(worker_total_num-worker_id))
+            files = self.used_files[previous_files:min(previous_files+files_no, len(self.used_files))]
         except Exception as e:
             files = self.used_files
         self.torch_ds = self._build_torch_dataset_iter(files)
 
-        if not (self.filter_empty_gt and self.mode == 'train'):
-            return iter(self.torch_ds)
         for elem in self.torch_ds:
-            if len(elem['data_samples'].gt_instances_3d):
+            if len(elem['data_samples'].gt_instances_3d) or not (self.filter_empty_gt and self.mode == 'train'):
                 yield elem
 
     def __len__(self) -> int:
         if self.repeat:
-            return int(1e9)
-        return self._len_used_files*200
+            return int(80*8000) # TODO: not hardcoded
+        return self._len_used_files*200 # approx
