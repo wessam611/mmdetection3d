@@ -1,6 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
-from typing import List, Optional, Union, Num, Integer
+from typing import List, Optional, Union
 
 import mmcv
 import mmengine
