@@ -1500,10 +1500,12 @@ class LoadWaymoFrame(BaseTransform):
         """
         in_targets = lambda _type: self.class_mapping[self.type_list[_type]] in self.target_classes
         if self.with_bbox_3d:
+            results['num_lidar_points_in_box'] = []
             for label in laser_labels:
                 if in_targets(label.type):
                     results['gt_bboxes_3d'] = self._load_bboxes_3d(
                         results.get('gt_bboxes_3d', []), label)
+                    results['num_lidar_points_in_box'].append(label.num_lidar_points_in_box)
             results['gt_bboxes_3d'] = LiDARInstance3DBoxes(results.get('gt_bboxes_3d', []))
         
         if self.with_label_3d:
@@ -1626,9 +1628,6 @@ class LoadWaymoFrame(BaseTransform):
                         tf.convert_to_tensor(value=v[1].data),
                     range_image.shape.dims)).numpy()
             results['range_images'] = range_images
-        self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
-        results['box_type_3d'] = self.box_type_3d
-        results['box_mode_3d'] = self.box_mode_3d
 
         return results
 
@@ -1650,5 +1649,8 @@ class LoadWaymoFrame(BaseTransform):
         results['sample_idx'] = -1
         results['context'] = frame.context.name
         results['timestamp_micros'] = frame.timestamp_micros
+        self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
+        results['box_type_3d'] = self.box_type_3d
+        results['box_mode_3d'] = self.box_mode_3d
 
         return results

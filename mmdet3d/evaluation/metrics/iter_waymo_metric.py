@@ -94,6 +94,8 @@ class IterWaymoMetric(WaymoMetric):
             'Cyclist': label_pb2.Label.TYPE_CYCLIST,
         }
         self.class_names = ['Car', 'Pedestrian', 'Cyclist']
+        self.gt_tmp_dir = tempfile.TemporaryDirectory()
+        self.waymo_bin_file = f'{self.gt_tmp_dir.name}/gt.bin'
 
 
     def process(self, data_batch: dict, data_samples: Sequence[dict]) -> None:
@@ -106,7 +108,8 @@ class IterWaymoMetric(WaymoMetric):
             data_batch (dict): A batch of data from the dataloader.
             data_samples (Sequence[dict]): A batch of outputs from the model.
         """
-        for data_sample in data_samples:
+        gt_data = data_batch['data_samples']
+        for i, data_sample in enumerate(data_samples):
             result = dict()
             pred_3d = data_sample['pred_instances_3d']
             pred_2d = data_sample['pred_instances']
@@ -116,6 +119,13 @@ class IterWaymoMetric(WaymoMetric):
             for attr_name in pred_2d:
                 pred_2d[attr_name] = pred_2d[attr_name].to('cpu')
             result['pred_instances'] = pred_2d
+
+            gt_3d = gt_data[i].gt_instances_3d
+            gt_2d = gt_data[i].gt_instances
+            result['gt_instances_3d'] = gt_3d.to('cpu')
+            result['gt_instances'] = gt_2d.to('cpu')
+            result['num_lidar_points_in_box'] = []#data_batch['inputs']['num_lidar_points_in_box'][i] TODO
+
             sample_idx = data_sample['sample_idx']
             result['sample_idx'] = sample_idx
             result['context'] = data_sample['context']
@@ -159,6 +169,8 @@ class IterWaymoMetric(WaymoMetric):
             # It's for identitying the sample in formating.]
             res['pred_instances_3d']['bboxes_3d'].limit_yaw(
                 offset=0.5, period=np.pi * 2)
+            res['gt_instances_3d']['bboxes_3d'].limit_yaw(
+                offset=0.5, period=np.pi * 2)
 
         with open(f'{waymo_results_save_file}',
                     'wb') as f:
@@ -167,10 +179,18 @@ class IterWaymoMetric(WaymoMetric):
                 self.parse_objects(res['pred_instances_3d'], res['context'], res['timestamp_micros'], objects)
             f.write(objects.SerializeToString())
 
+        with open(self.waymo_bin_file,
+                    'wb') as f:
+            objects = metrics_pb2.Objects()
+            for res in final_results:
+                self.parse_objects(res['gt_instances_3d'], res['context'], res['timestamp_micros'], objects,
+                                   res['num_lidar_points_in_box'])
+            f.write(objects.SerializeToString())
+
         return final_results, None
 
     def parse_objects(self, instances, context_name,
-                      frame_timestamp_micros, objects_ret) -> None:
+                      frame_timestamp_micros, objects_ret, num_lidar_points_in_box=None) -> None:
         """Parse one prediction with several instances in kitti format and
         convert them to `Object` proto.
 
@@ -208,6 +228,8 @@ class IterWaymoMetric(WaymoMetric):
             rotation_y = box.yaw
             if 'scores_3d' in instances:
                 score = instances['scores_3d'][instance_idx]
+            # if num_lidar_points_in_box is not None:
+            num_points = 50#num_lidar_points_in_box[instance_idx]  TODO
 
             z += height / 2
 
@@ -232,6 +254,8 @@ class IterWaymoMetric(WaymoMetric):
             o.object.type = self.k2w_cls_map[self.class_names[cls]]
             if 'scores_3d' in instances:
                 o.score = score
+            # if num_lidar_points_in_box is not None:
+            o.object.num_lidar_points_in_box = num_points
             o.context_name = context_name
             o.frame_timestamp_micros = frame_timestamp_micros
             return o
