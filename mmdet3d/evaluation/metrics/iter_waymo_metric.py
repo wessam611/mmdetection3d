@@ -2,6 +2,8 @@
 import tempfile
 from os import path as osp
 from typing import Dict, List, Optional, Tuple, Union, Sequence
+from glob import glob
+from os.path import join
 
 import mmengine
 import numpy as np
@@ -97,6 +99,9 @@ class IterWaymoMetric(WaymoMetric):
         self.gt_tmp_dir = tempfile.TemporaryDirectory()
         self.waymo_bin_file = f'{self.gt_tmp_dir.name}/gt.bin'
 
+        self.gt_col_tmp_dir = tempfile.TemporaryDirectory()
+        self.pred_col_tmp_dir = tempfile.TemporaryDirectory()
+        self.file_idx = 0
 
     def process(self, data_batch: dict, data_samples: Sequence[dict]) -> None:
         """Process one batch of data samples and predictions.
@@ -124,49 +129,36 @@ class IterWaymoMetric(WaymoMetric):
             gt_2d = gt_data[i].gt_instances
             result['gt_instances_3d'] = gt_3d.to('cpu')
             result['gt_instances'] = gt_2d.to('cpu')
-            result['num_lidar_points_in_box'] = []#data_batch['inputs']['num_lidar_points_in_box'][i] TODO
 
             sample_idx = data_sample['sample_idx']
             result['sample_idx'] = sample_idx
             result['context'] = data_sample['context']
             result['timestamp_micros'] = data_sample['timestamp_micros']
+            # self.results.append(result)
             self.results.append(result)
-    
-    def format_results(
+
+        if len(self.results) >= 300:
+            self.format_results_batch(self.results, self.file_idx)
+            self.file_idx += 1
+            self.results = []
+
+    def format_results_batch(
         self,
         results: List[dict],
-        pklfile_prefix: Optional[str] = None,
-        submission_prefix: Optional[str] = None,
-        classes: Optional[List[str]] = None
-    ) -> Tuple[dict, Union[tempfile.TemporaryDirectory, None]]:
-        """Format the results to bin file.
+        file_idx: int
+    ):
+        """saves a large batch of results and gt to temp bin files
 
         Args:
             results (List[dict]): Testing results of the dataset.
-            pklfile_prefix (str, optional): The prefix of pkl files. It
-                includes the file path and the prefix of filename, e.g.,
-                "a/b/prefix". If not specified, a temp file will be created.
-                Defaults to None.
-            submission_prefix (str, optional): The prefix of submitted files.
-                It includes the file path and the prefix of filename, e.g.,
-                "a/b/prefix". If not specified, a temp file will be created.
-                Defaults to None. not used in this override
-            classes (List[str], optional): A list of class name.
-                Defaults to None. not used in this override
-
-        Returns:
-            tuple: (result_dict, tmp_dir), result_dict is a dict containing the
-            formatted result, tmp_dir is the temporal directory created for
-            saving json files when jsonfile_prefix is not specified. 
-            tmp_dir is alway None in this override
+            file_idx (int): file name of the tmp file
         """
 
-        waymo_results_save_file = f'{pklfile_prefix}.bin'
-        
+        waymo_results_save_file = f'{self.gt_col_tmp_dir.name}/{file_idx}.bin'
+        waymo_gt_save_file = f'{self.pred_col_tmp_dir.name}/{file_idx}.bin'
+
         final_results = results
         for res in final_results:
-            # Actually, `sample_idx` here is the filename without suffix.
-            # It's for identitying the sample in formating.]
             res['pred_instances_3d']['bboxes_3d'].limit_yaw(
                 offset=0.5, period=np.pi * 2)
             res['gt_instances_3d']['bboxes_3d'].limit_yaw(
@@ -179,18 +171,55 @@ class IterWaymoMetric(WaymoMetric):
                 self.parse_objects(res['pred_instances_3d'], res['context'], res['timestamp_micros'], objects)
             f.write(objects.SerializeToString())
 
-        with open(self.waymo_bin_file,
+        with open(waymo_gt_save_file,
                     'wb') as f:
             objects = metrics_pb2.Objects()
             for res in final_results:
-                self.parse_objects(res['gt_instances_3d'], res['context'], res['timestamp_micros'], objects,
-                                   res['num_lidar_points_in_box'])
+                self.parse_objects(res['gt_instances_3d'], res['context'], res['timestamp_micros'], objects)
+
             f.write(objects.SerializeToString())
 
-        return final_results, None
+    def format_results(
+        self,
+        results: List[dict],
+        pklfile_prefix: Optional[str] = None,
+        submission_prefix: Optional[str] = None,
+        classes: Optional[List[str]] = None
+    ) -> Tuple[dict, Union[tempfile.TemporaryDirectory, None]]:
+        """_summary_
+
+        Args:
+            results (List[dict]): redundant in this function
+            pklfile_prefix (Optional[str], optional): final path of results bin file. Defaults to None.
+            submission_prefix (Optional[str], optional): . Defaults to None.
+            classes (Optional[List[str]], optional): . Defaults to None.
+
+        Returns:
+            Tuple[dict, Union[tempfile.TemporaryDirectory, None]]
+        """
+
+        gt_pathnames = sorted(glob(join(self.gt_col_tmp_dir.name, '*.bin')))
+        gt_combined = self.combine(gt_pathnames)
+        self.gt_col_tmp_dir.cleanup()
+        self.gt_col_tmp_dir = tempfile.TemporaryDirectory()
+
+        pred_pathnames = sorted(glob(join(self.pred_col_tmp_dir.name, '*.bin')))
+        pred_combined = self.combine(pred_pathnames)
+        self.pred_col_tmp_dir.cleanup()
+        self.pred_col_tmp_dir = tempfile.TemporaryDirectory()
+
+        self.file_idx = 0
+
+        with open(self.waymo_bin_file, 'wb') as f:
+            f.write(gt_combined.SerializeToString())
+
+        with open(f'{pklfile_prefix}.bin', 'wb') as f:
+            f.write(pred_combined.SerializeToString())
+
+        return results, None
 
     def parse_objects(self, instances, context_name,
-                      frame_timestamp_micros, objects_ret, num_lidar_points_in_box=None) -> None:
+                      frame_timestamp_micros, objects_ret) -> None:
         """Parse one prediction with several instances in kitti format and
         convert them to `Object` proto.
 
@@ -228,8 +257,6 @@ class IterWaymoMetric(WaymoMetric):
             rotation_y = box.yaw
             if 'scores_3d' in instances:
                 score = instances['scores_3d'][instance_idx]
-            # if num_lidar_points_in_box is not None:
-            num_points = 50#num_lidar_points_in_box[instance_idx]  TODO
 
             z += height / 2
 
@@ -254,8 +281,8 @@ class IterWaymoMetric(WaymoMetric):
             o.object.type = self.k2w_cls_map[self.class_names[cls]]
             if 'scores_3d' in instances:
                 o.score = score
-            # if num_lidar_points_in_box is not None:
-            o.object.num_lidar_points_in_box = num_points
+            if 'num_lidar_points_in_box' in instances:
+                o.object.num_lidar_points_in_box = instances['num_lidar_points_in_box'][instance_idx]
             o.context_name = context_name
             o.frame_timestamp_micros = frame_timestamp_micros
             return o
@@ -263,3 +290,23 @@ class IterWaymoMetric(WaymoMetric):
         for instance_idx in range(len(instances['labels_3d'])):
             o = parse_one_object(instance_idx)
             objects_ret.objects.append(o)
+
+    def combine(self, pathnames):
+        """Combine predictions in waymo format for each sample together.
+
+        Args:
+            pathnames (str): Paths to save predictions.
+
+        Returns:
+            :obj:`Objects`: Combined predictions in Objects proto.
+        """
+        combined = metrics_pb2.Objects()
+
+        for pathname in pathnames:
+            objects = metrics_pb2.Objects()
+            with open(pathname, 'rb') as f:
+                objects.ParseFromString(f.read())
+            for o in objects.objects:
+                combined.objects.append(o)
+
+        return combined

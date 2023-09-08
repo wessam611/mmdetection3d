@@ -1507,7 +1507,6 @@ class LoadWaymoFrame(BaseTransform):
                         results.get('gt_bboxes_3d', []), label)
                     results['num_lidar_points_in_box'].append(label.num_lidar_points_in_box)
             results['gt_bboxes_3d'] = LiDARInstance3DBoxes(results.get('gt_bboxes_3d', []))
-        
         if self.with_label_3d:
             for label in laser_labels:
                 if in_targets(label.type):
@@ -1524,114 +1523,37 @@ class LoadWaymoFrame(BaseTransform):
         results = self._parse_laser_labels(results, frame.laser_labels)
         return results
 
-    def _load_frame_inputs(self, results, frame) -> dict:
+    def _load_frame_inputs(self, results, frame, points, nlz_points, range_index) -> dict:
         """
-        Should be quite optimized..
-        -- WORST CASE SCENARIO --
-        - Range images are converted to TF 3 times
-        - Range images are being processed around 2 times (
-            1- projection, transformation
-            2- masking, sum)
+        transforming objects read from tfrecord to the openmmlab format and applying 
+        configurations
+        
+        Note: only points is handled in the current version (TODO)
+
+        Args:
+            results (dict): dictionary to add the data to
+            frame: Waymo frame
+            points: pointcloud
+            nlz_points: no label zone
+            range_index: pointcloud to range_image indices (assumes r0&r1, flattenned range_image)
+
+        Returns:
+            dict: _description_
         """
-        frame.lasers.sort(key=lambda laser: laser.name)
-        (range_images, camera_projections,
-         seg_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(
-            frame)
-
-        points_0, _ = convert_range_image_to_point_cloud(
-            frame,
-            range_images,
-            camera_projections,
-            range_image_top_pose,
-            ri_index=0,
-            keep_polar_features=True)
-        points_0 = [points_0[l-1] for l in self.used_lasers]
-        results['points'] = np.concatenate(points_0, axis=0) # (range, intensity, elongation, x, y, z)
-
-        if self.use_ri2:
-            points_1, _ = convert_range_image_to_point_cloud(
-                frame,
-                range_images,
-                camera_projections,
-                range_image_top_pose,
-                ri_index=1,
-                keep_polar_features=True)
-            points_1 = [points_1[l-1] for l in self.used_lasers]
-            points_1 = np.concatenate(points_1, axis=0)
-            results['points'] = np.concatenate([results['points'], points_1])
-
-        range_images = dict(
-            [(k, range_images[k]) for k in self.used_lasers]
-        )
-        camera_projections = dict(
-            [(k, camera_projections[k]) for k in self.used_lasers]
-        )
-
-        if self.range_image_masks or self.filter_nlz_points or self.nlz_points:
-            if self.range_image_masks:
-                mask_index = np.full_like(results['points'][:, 0], -1)
-            if self.filter_nlz_points or self.nlz_points:
-                nlz_points = np.full_like(results['points'][:, 0], -1)
-            for laser_name in range_images.keys():
-                offset = 0
-                for ri in [0, 1]:
-                    if ri == 1 and not self.use_ri2:
-                        break
-                    range_image = range_images[laser_name][ri]
-                    range_image_tensor = tf.reshape(
-                        tf.convert_to_tensor(value=range_image.data),
-                    range_image.shape.dims)
-                    range_image_mask = range_image_tensor[..., 0] > 0
-                    of_dif = tf.sum(range_image_mask)
-                    if self.filter_nlz_points or self.nlz_points:
-                        nlz_points[offset: offset+of_dif] = range_image[range_image_mask: -1]
-                    if self.range_image_masks and laser_name == open_dataset.LaserName.TOP:
-                        cur_mask_index = tf.where(range_image_mask)
-                        cur_mask_index = (ri * range_image_mask.shape[0] +
-                            cur_mask_index[:, 0]
-                            ) * range_image_mask.shape[1] + cur_mask_index[:, 1]
-                        mask_index[offset: offset+of_dif
-                                ] = cur_mask_index
-                    offset += of_dif
-
-
-            if self.range_image_masks:
-                results['range_index'] = mask_index
-            if self.filter_nlz_points:
-                results['nlz_points'] = nlz_points
-            if self.nlz_points:
-                for k in ['points', 'range_index', 'nlz_points']:
-                    if k not in results.keys():
-                        continue
-                    results[k] = results[k][nlz_points!=1]
-
-        results['points'] = results['points'][:, [3, 4, 5, 1, 2, 0]][:, self.use_dim]
+        
+        results['points'] = points[:, self.use_dim]
         if self.norm_intensity:
             assert 3 in self.use_dim
             results['points'][:, self.use_dim.index(3)] = np.tanh(results['points'][:, self.use_dim.index(3)])
         if self.norm_elongation:
             assert 4 in self.use_dim
             results['points'][:, self.use_dim.index(4)] = np.tanh(results['points'][:, self.use_dim.index(4)])
-
         points_class = get_points_type(self.coord_type)
         results['points'] = points_class(
             results['points'], points_dim=results['points'].shape[-1])
-
-        if self.range_images:
-            for k, v in range_image:
-                range_image[k] = []
-                range_image[k].append(tf.reshape(
-                        tf.convert_to_tensor(value=v[0].data),
-                    range_image.shape.dims)).numpy()
-                if self.use_ri2:
-                    range_image[k].append(tf.reshape(
-                        tf.convert_to_tensor(value=v[1].data),
-                    range_image.shape.dims)).numpy()
-            results['range_images'] = range_images
-
         return results
 
-    def transform(self, frame_buffer: Tensor) -> dict:
+    def transform(self, buffer: Tensor) -> dict:
         """Transforms waymo Frame buffer string to dictionary of input data
         and labels
 
@@ -1643,8 +1565,24 @@ class LoadWaymoFrame(BaseTransform):
         """
         results = {}
         frame = open_dataset.Frame()
+        feature_description = {
+            'frame': tf.io.FixedLenFeature([], tf.string),
+            'points': tf.io.VarLenFeature(tf.string),
+            'nlz_points': tf.io.VarLenFeature(tf.string),
+            'range_index': tf.io.VarLenFeature(tf.string)
+        }
+        example = tf.io.parse_single_example(buffer, feature_description)
+        frame_buffer = example['frame']
+        points = example['points']
         frame.ParseFromString(bytearray(frame_buffer.numpy()))
-        results = self._load_frame_inputs(results, frame)
+
+        points = tf.io.decode_raw(points.values[0], out_type=tf.float32).numpy().reshape(-1, 6)
+        nlz_points = example['nlz_points']
+        nlz_points = tf.io.decode_raw(nlz_points.values[0], out_type=tf.float32).numpy()
+        range_index = example['range_index']
+        range_index = tf.io.decode_raw(range_index.values[0], out_type=tf.float32).numpy()
+    
+        results = self._load_frame_inputs(results, frame, points, nlz_points, range_index)
         results = self._load_labels(results, frame)
         results['sample_idx'] = -1
         results['context'] = frame.context.name

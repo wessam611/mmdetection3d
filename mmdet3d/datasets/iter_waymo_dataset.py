@@ -58,8 +58,11 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
         mode_folders = {'train': 'training',
                         'val': 'validation',
                         'test': 'testing'}
+        # some variables are still based on loading files from the cloud directly
+        # however the code has been changed to read from disk directly with 
+        # preprocessed pointclouds. current path is pointing to disk
         cloud_bucket = tfds.core.Path(
-            f'gs://waymo_open_dataset_{cloud_bucket_version}/'
+            'data/waymo/waymo_format/records/'
         )
         self.mode = mode
         self._fully_initialized = True
@@ -68,7 +71,7 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
 
         self.bucket_files = tf.io.gfile.glob(
             os.path.join(
-                cloud_bucket, f'individual_files/{mode_folders[self.mode]}/segment*'
+                cloud_bucket, f'{mode_folders[self.mode]}/segment*'
             )
         )
         self.used_files = self.bucket_files
@@ -99,7 +102,6 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
                                      buffer_size=self.buffer_size,
                                      num_parallel_reads=self.num_parallel_reads,
                                      compression_type="")
-
         if self.repeat:
             ds = ds.repeat()
         torch_ds = IterableWrapper(ds)
@@ -125,5 +127,5 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
 
     def __len__(self) -> int:
         if self.repeat:
-            return int(80*8000) # TODO: not hardcoded
+            return int(8*80000) # TODO: not hardcoded
         return self._len_used_files*200 # approx

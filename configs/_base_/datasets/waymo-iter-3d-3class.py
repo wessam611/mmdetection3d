@@ -82,14 +82,14 @@ eval_pipeline = [
     dict(
         type='LoadWaymoFrame',
     ),
-    dict(type='Pack3DDetInputs', keys=['points', 'gt_bboxes_3d', 'gt_labels_3d'], meta_keys=['context', 'timestamp_micros', 'box_type_3d', 'box_mode_3d', 'sample_idx']),
+    dict(type='Pack3DDetInputs', keys=['points', 'gt_bboxes_3d', 'gt_labels_3d', 'num_lidar_points_in_box'], meta_keys=['context', 'timestamp_micros', 'box_type_3d', 'box_mode_3d', 'sample_idx']),
 ]
 
 train_dataloader = dict(
-    num_workers=16,
+    num_workers=4,
     persistent_workers=True,
     prefetch_factor=2,
-    batch_size=1,
+    batch_size=8,
     dataset=
         dict(
             type=dataset_type,
@@ -103,8 +103,8 @@ train_dataloader = dict(
             backend_args=backend_args
             ))
 val_dataloader = dict(
-    batch_size=1,
-    num_workers=16,
+    batch_size=8,
+    num_workers=8,
     prefetch_factor=2,
     persistent_workers=True,
     dataset=dict(
@@ -114,14 +114,14 @@ val_dataloader = dict(
         modality=input_modality,
         test_mode=True,
         mode='val',
-        val_divs=2,
+        val_divs=3,
         metainfo=metainfo,
         box_type_3d='LiDAR',
         backend_args=backend_args))
 
 test_dataloader = dict(
-    batch_size=1,
-    num_workers=16,
+    batch_size=8,
+    num_workers=4,
     persistent_workers=True,
     prefetch_factor=1,
     drop_last=False,
@@ -138,9 +138,9 @@ test_dataloader = dict(
 
 val_evaluator = dict(
     type='IterWaymoMetric',
-    ann_file=None,
+    ann_file='./data/waymo/kitti_format/waymo_infos_val.pkl',
     waymo_bin_file='./data/waymo/waymo_format/gt.bin',
-    data_root=None,
+    data_root='gs://waymo_open_dataset_v_1_4_1/individual_files/',
     backend_args=backend_args,
     convert_kitti_format=False)
 test_evaluator = val_evaluator
