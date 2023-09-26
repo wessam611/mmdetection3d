@@ -5,11 +5,17 @@ _base_ = [
     '../_base_/default_runtime.py',
 ]
 
-lr = 0.0005
+lr = 0.001
+optim_wrapper = dict(optimizer=dict(lr=lr))
 # Default setting for scaling LR automatically
 #   - `enable` means enable scaling LR automatically
 #       or not by default.
 #   - `base_batch_size` = (16 GPUs) x (2 samples per GPU).
 auto_scale_lr = dict(enable=False, base_batch_size=32)
-train_cfg = dict(type='IterBasedTrainLoop', max_iters=80000, val_interval=7000, _delete_=True)
-default_hooks = dict(checkpoint=dict(type='CheckpointHook', by_epoch=False, interval=15000))
+train_cfg = dict(
+    type='IterBasedTrainLoop',
+    max_iters=120000,
+    val_interval=15000,
+    _delete_=True)
+default_hooks = dict(
+    checkpoint=dict(type='CheckpointHook', by_epoch=False, interval=15000))

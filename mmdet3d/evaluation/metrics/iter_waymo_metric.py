@@ -1,22 +1,19 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import tempfile
-from os import path as osp
-from typing import Dict, List, Optional, Tuple, Union, Sequence
 from glob import glob
+from os import path as osp
 from os.path import join
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import mmengine
 import numpy as np
 import torch
-
-
+from mmengine import Config, load
+from mmengine.logging import MMLogger, print_log
 from waymo_open_dataset import dataset_pb2 as open_dataset
 from waymo_open_dataset import label_pb2
 from waymo_open_dataset.protos import metrics_pb2
 from waymo_open_dataset.protos.metrics_pb2 import Objects
-
-from mmengine import Config, load
-from mmengine.logging import MMLogger, print_log
 
 from mmdet3d.models.layers import box3d_multiclass_nms
 from mmdet3d.registry import METRICS
@@ -28,66 +25,10 @@ from .waymo_metric import WaymoMetric
 
 @METRICS.register_module()
 class IterWaymoMetric(WaymoMetric):
-    """Waymo evaluation metric.
-
-    Args:
-        ann_file (str): The path of the annotation file in kitti format.
-        waymo_bin_file (str): The path of the annotation file in waymo format.
-        data_root (str): Path of dataset root. Used for storing waymo
-            evaluation programs.
-        split (str): The split of the evaluation set. Defaults to 'training'.
-        metric (str or List[str]): Metrics to be evaluated. Defaults to 'mAP'.
-        pcd_limit_range (List[float]): The range of point cloud used to filter
-            invalid predicted boxes. Defaults to [-85, -85, -5, 85, 85, 5].
-        convert_kitti_format (bool): Whether to convert the results to kitti
-            format. Now, in order to be compatible with camera-based methods,
-            defaults to True.
-        prefix (str, optional): The prefix that will be added in the metric
-            names to disambiguate homonymous metrics of different evaluators.
-            If prefix is not provided in the argument, self.default_prefix will
-            be used instead. Defaults to None.
-        format_only (bool): Format the output results without perform
-            evaluation. It is useful when you want to format the result to a
-            specific format and submit it to the test server.
-            Defaults to False.
-        pklfile_prefix (str, optional): The prefix of pkl files, including the
-            file path and the prefix of filename, e.g., "a/b/prefix". If not
-            specified, a temp file will be created. Defaults to None.
-        submission_prefix (str, optional): The prefix of submission data. If
-            not specified, the submission data will not be generated.
-            Defaults to None.
-        load_type (str): Type of loading mode during training.
-
-            - 'frame_based': Load all of the instances in the frame.
-            - 'mv_image_based': Load all of the instances in the frame and need
-              to convert to the FOV-based data type to support image-based
-              detector.
-            - 'fov_image_based': Only load the instances inside the default cam
-              and need to convert to the FOV-based data type to support image-
-              based detector.
-        default_cam_key (str): The default camera for lidar to camera
-            conversion. By default, KITTI: 'CAM2', Waymo: 'CAM_FRONT'.
-            Defaults to 'CAM_FRONT'.
-        use_pred_sample_idx (bool): In formating results, use the sample index
-            from the prediction or from the load annotations. By default,
-            KITTI: True, Waymo: False, Waymo has a conversion process, which
-            needs to use the sample idx from load annotation.
-            Defaults to False.
-        collect_device (str): Device name used for collecting results from
-            different ranks during distributed training. Must be 'cpu' or
-            'gpu'. Defaults to 'cpu'.
-        backend_args (dict, optional): Arguments to instantiate the
-            corresponding backend. Defaults to None.
-        idx2metainfo (str, optional): The file path of the metainfo in waymo.
-            It stores the mapping from sample_idx to metainfo. The metainfo
-            must contain the keys: 'idx2contextname' and 'idx2timestamp'.
-            Defaults to None.
-    """
+    """Waymo evaluation metric for iterable style dataset."""
     num_cams = 5
 
-    def __init__(self,
-                 *args,
-                 **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.k2w_cls_map = {
             'Car': label_pb2.Label.TYPE_VEHICLE,
@@ -137,17 +78,13 @@ class IterWaymoMetric(WaymoMetric):
             # self.results.append(result)
             self.results.append(result)
 
-        if len(self.results) >= 300:
+        if len(self.results) >= 100:
             self.format_results_batch(self.results, self.file_idx)
             self.file_idx += 1
             self.results = []
 
-    def format_results_batch(
-        self,
-        results: List[dict],
-        file_idx: int
-    ):
-        """saves a large batch of results and gt to temp bin files
+    def format_results_batch(self, results: List[dict], file_idx: int) -> None:
+        """saves a large batch of results and gt to temp bin files.
 
         Args:
             results (List[dict]): Testing results of the dataset.
@@ -164,46 +101,46 @@ class IterWaymoMetric(WaymoMetric):
             res['gt_instances_3d']['bboxes_3d'].limit_yaw(
                 offset=0.5, period=np.pi * 2)
 
-        with open(f'{waymo_results_save_file}',
-                    'wb') as f:
+        with open(f'{waymo_results_save_file}', 'wb') as f:
             objects = metrics_pb2.Objects()
             for res in final_results:
-                self.parse_objects(res['pred_instances_3d'], res['context'], res['timestamp_micros'], objects)
+                self.parse_objects(res['pred_instances_3d'], res['context'],
+                                   res['timestamp_micros'], objects)
             f.write(objects.SerializeToString())
-
-        with open(waymo_gt_save_file,
-                    'wb') as f:
+        with open(waymo_gt_save_file, 'wb') as f:
             objects = metrics_pb2.Objects()
             for res in final_results:
-                self.parse_objects(res['gt_instances_3d'], res['context'], res['timestamp_micros'], objects)
-
+                self.parse_objects(res['gt_instances_3d'], res['context'],
+                                   res['timestamp_micros'], objects)
             f.write(objects.SerializeToString())
 
     def format_results(
-        self,
-        results: List[dict],
-        pklfile_prefix: Optional[str] = None,
-        submission_prefix: Optional[str] = None,
-        classes: Optional[List[str]] = None
-    ) -> Tuple[dict, Union[tempfile.TemporaryDirectory, None]]:
-        """_summary_
+            self,
+            results: List[dict],
+            pklfile_prefix: Optional[str] = None,
+            *args,
+            **kwargs) -> Tuple[dict, Union[tempfile.TemporaryDirectory, None]]:
+        """Loads intermediate files and writes all predictions and GTs to final
+        destination files.
 
         Args:
             results (List[dict]): redundant in this function
             pklfile_prefix (Optional[str], optional): final path of results bin file. Defaults to None.
-            submission_prefix (Optional[str], optional): . Defaults to None.
-            classes (Optional[List[str]], optional): . Defaults to None.
-
         Returns:
             Tuple[dict, Union[tempfile.TemporaryDirectory, None]]
         """
+        if len(self.results) > 0:
+            self.format_results_batch(self.results, self.file_idx)
+            self.file_idx += 1
+            self.results = []
 
         gt_pathnames = sorted(glob(join(self.gt_col_tmp_dir.name, '*.bin')))
         gt_combined = self.combine(gt_pathnames)
         self.gt_col_tmp_dir.cleanup()
         self.gt_col_tmp_dir = tempfile.TemporaryDirectory()
 
-        pred_pathnames = sorted(glob(join(self.pred_col_tmp_dir.name, '*.bin')))
+        pred_pathnames = sorted(
+            glob(join(self.pred_col_tmp_dir.name, '*.bin')))
         pred_combined = self.combine(pred_pathnames)
         self.pred_col_tmp_dir.cleanup()
         self.pred_col_tmp_dir = tempfile.TemporaryDirectory()
@@ -218,22 +155,24 @@ class IterWaymoMetric(WaymoMetric):
 
         return results, None
 
-    def parse_objects(self, instances, context_name,
-                      frame_timestamp_micros, objects_ret) -> None:
-        """Parse one prediction with several instances in kitti format and
+    def parse_objects(self, instances: Dict, context_name: str,
+                      frame_timestamp_micros: int,
+                      objects_ret: metrics_pb2.Objects) -> None:
+        """Parse one prediction and corresponding GT with several instances and
         convert them to `Object` proto.
 
         Args:
             instances (dict): Predictions
-                - labels_3d (np.ndarray): Class labels of predictions.
-                - bboxes_3d (np.ndarray): LiDARInstance3DBoxes
-            T_k2w (np.ndarray): Transformation matrix from kitti to waymo.
+                - labels_3d (torch.tensor): Class labels of predictions.
+                - bboxes_3d (torch.tensor): LiDARInstance3DBoxes
             context_name (str): Context name of the frame.
             frame_timestamp_micros (int): Frame timestamp.
 
         Returns:
             :obj:`Object`: Predictions in waymo dataset Object proto.
         """
+        lidar_boxes = instances['bboxes_3d'].tensor
+        labels = instances['labels_3d']
 
         def parse_one_object(instance_idx):
             """Parse one instance in kitti format and convert them to `Object`
@@ -246,19 +185,18 @@ class IterWaymoMetric(WaymoMetric):
                 :obj:`Object`: Predicted instance in waymo dataset
                     Object proto.
             """
-            cls = instances['labels_3d'][instance_idx]
-            box = instances['bboxes_3d'][instance_idx]
-            x = box.center[:, 0]
-            y = box.center[:, 1]
-            z = box.center[:, 2]
-            length = box.dims[:, 0]
-            width = box.dims[:, 1]
-            height = box.dims[:, 2]
-            rotation_y = box.yaw
+            global countt
+            cls = labels[instance_idx].item()
+            box = lidar_boxes[instance_idx]
+            x = box[0].item()
+            y = box[1].item()
+            z = box[2].item()
+            width = box[3].item()
+            length = box[4].item()
+            height = box[5].item()
+            rotation_y = box[6].item()
             if 'scores_3d' in instances:
-                score = instances['scores_3d'][instance_idx]
-
-            z += height / 2
+                score = instances['scores_3d'][instance_idx].item()
 
             # different conventions
             heading = rotation_y
@@ -271,8 +209,8 @@ class IterWaymoMetric(WaymoMetric):
             box.center_x = x
             box.center_y = y
             box.center_z = z
-            box.length = length
             box.width = width
+            box.length = length
             box.height = height
             box.heading = heading
 
@@ -282,16 +220,19 @@ class IterWaymoMetric(WaymoMetric):
             if 'scores_3d' in instances:
                 o.score = score
             if 'num_lidar_points_in_box' in instances:
-                o.object.num_lidar_points_in_box = instances['num_lidar_points_in_box'][instance_idx]
+                o.object.num_lidar_points_in_box = instances[
+                    'num_lidar_points_in_box'][instance_idx].item()
             o.context_name = context_name
             o.frame_timestamp_micros = frame_timestamp_micros
             return o
 
         for instance_idx in range(len(instances['labels_3d'])):
             o = parse_one_object(instance_idx)
-            objects_ret.objects.append(o)
+            if o.object.num_lidar_points_in_box > 50 or 'num_lidar_points_in_box' not in instances:
+                o.object.num_lidar_points_in_box = 50
+                objects_ret.objects.append(o)
 
-    def combine(self, pathnames):
+    def combine(self, pathnames: List[str]) -> metrics_pb2.Objects:
         """Combine predictions in waymo format for each sample together.
 
         Args:

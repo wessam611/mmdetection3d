@@ -1,9 +1,7 @@
-import torch
+# Copyright (c) OpenMMLab. All rights reserved.
 import numpy as np
-
+import torch
 from waymo_open_dataset import dataset_pb2
-
-
 """
 From Waymo Open Dataset python library, transformed code to pytorch
 """
@@ -22,9 +20,9 @@ def compute_inclination(inclination_range, height):
     diff = inclination_range[..., 1] - inclination_range[..., 0]
     inclination = (
         (0.5 + torch.arange(0, height, dtype=inclination_range.dtype)) /
-        height * diff + inclination_range[..., 0:1]
-    )
+        height * diff + inclination_range[..., 0:1])
     return inclination
+
 
 def combined_static_and_dynamic_shape(tensor):
     """Returns a list containing static and dynamic values for the dimensions.
@@ -50,6 +48,7 @@ def combined_static_and_dynamic_shape(tensor):
             combined_shape.append(dynamic_tensor_shape[index])
 
     return combined_shape
+
 
 def get_rotation_matrix(roll, pitch, yaw, name=None):
     """Gets a rotation matrix given roll, pitch, yaw.
@@ -82,21 +81,22 @@ def get_rotation_matrix(roll, pitch, yaw, name=None):
         torch.stack([zeros, cos_roll, -1.0 * sin_roll], dim=-1),
         torch.stack([zeros, sin_roll, cos_roll], dim=-1),
     ],
-                        dim=-2)
+                         dim=-2)
     r_pitch = torch.stack([
         torch.stack([cos_pitch, zeros, sin_pitch], dim=-1),
         torch.stack([zeros, ones, zeros], dim=-1),
         torch.stack([-1.0 * sin_pitch, zeros, cos_pitch], dim=-1),
     ],
-                         dim=-2)
+                          dim=-2)
     r_yaw = torch.stack([
         torch.stack([cos_yaw, -1.0 * sin_yaw, zeros], dim=-1),
         torch.stack([sin_yaw, cos_yaw, zeros], dim=-1),
         torch.stack([zeros, zeros, ones], dim=-1),
     ],
-                       dim=-2)
+                        dim=-2)
 
     return torch.matmul(r_yaw, torch.matmul(r_pitch, r_roll))
+
 
 def get_transform(rotation, translation):
     """Combines NxN rotation and Nx1 translation to (N+1)x(N+1) transform.
@@ -112,11 +112,17 @@ def get_transform(rotation, translation):
     """
     transform = torch.cat([rotation, translation.unsqueeze(-1)], dim=-1)
     last_row = torch.zeros_like(translation)
-    last_row = torch.cat([last_row, torch.ones_like(last_row[..., 0:1])], dim=-1)
+    last_row = torch.cat(
+        [last_row, torch.ones_like(last_row[..., 0:1])], dim=-1)
     transform = torch.cat([transform, last_row.unsqueeze(-2)], dim=-2)
     return transform
 
-def compute_range_image_cartesian(range_image_polar, extrinsic, pixel_pose=None, frame_pose=None, dtype=torch.float32):
+
+def compute_range_image_cartesian(range_image_polar,
+                                  extrinsic,
+                                  pixel_pose=None,
+                                  frame_pose=None,
+                                  dtype=torch.float32):
     """Computes range image cartesian coordinates from polar ones.
 
     Args:
@@ -141,7 +147,8 @@ def compute_range_image_cartesian(range_image_polar, extrinsic, pixel_pose=None,
     if frame_pose is not None:
         frame_pose = frame_pose.to(dtype)
 
-    azimuth, inclination, range_image_range = torch.unbind(range_image_polar, dim=-1)
+    azimuth, inclination, range_image_range = torch.unbind(
+        range_image_polar, dim=-1)
 
     cos_azimuth = torch.cos(azimuth)
     sin_azimuth = torch.sin(azimuth)
@@ -162,7 +169,8 @@ def compute_range_image_cartesian(range_image_polar, extrinsic, pixel_pose=None,
 
     # To vehicle frame.
     # [B, H, W, 3]
-    range_image_points = torch.einsum('bkr,bijr->bijk', (rotation, range_image_points)) + translation
+    range_image_points = torch.einsum(
+        'bkr,bijr->bijk', (rotation, range_image_points)) + translation
     if pixel_pose is not None:
         # To global frame.
         # [B, H, W, 3, 3]
@@ -171,7 +179,8 @@ def compute_range_image_cartesian(range_image_polar, extrinsic, pixel_pose=None,
         pixel_pose_translation = pixel_pose[..., 0:3, 3]
         # [B, H, W, 3]
         range_image_points = torch.einsum(
-            'bhwij,bhwj->bhwi', (pixel_pose_rotation, range_image_points)) + pixel_pose_translation
+            'bhwij,bhwj->bhwi',
+            (pixel_pose_rotation, range_image_points)) + pixel_pose_translation
         if frame_pose is None:
             raise ValueError('frame_pose must be set when pixel_pose is set.')
         # To vehicle frame corresponding to the given frame_pose
@@ -181,12 +190,18 @@ def compute_range_image_cartesian(range_image_polar, extrinsic, pixel_pose=None,
         world_to_vehicle_translation = world_to_vehicle[:, 0:3, 3]
         # [B, H, W, 3]
         range_image_points = torch.einsum(
-            'bij,bhwj->bhwi', (world_to_vehicle_rotation, range_image_points)) + world_to_vehicle_translation.unsqueeze(1).unsqueeze(1)
+            'bij,bhwj->bhwi',
+            (world_to_vehicle_rotation, range_image_points
+             )) + world_to_vehicle_translation.unsqueeze(1).unsqueeze(1)
 
     range_image_points = range_image_points.to(dtype=range_image_polar_dtype)
     return range_image_points
 
-def compute_range_image_polar(range_image, extrinsic, inclination, dtype=torch.float32):
+
+def compute_range_image_polar(range_image,
+                              extrinsic,
+                              inclination,
+                              dtype=torch.float32):
     """Computes range image polar coordinates.
 
     Args:
@@ -209,16 +224,25 @@ def compute_range_image_polar(range_image, extrinsic, inclination, dtype=torch.f
     with torch.no_grad():
         az_correction = torch.atan2(extrinsic[:, 1, 0], extrinsic[:, 0, 0])
         ratios = (torch.arange(width, 0, -1).to(dtype) - 0.5) / width
-        azimuth = ((ratios * 2.0 - 1.0) * torch.tensor([3.141592653589793], dtype=dtype) - az_correction.view(-1, 1))
+        azimuth = ((ratios * 2.0 - 1.0) *
+                   torch.tensor([3.141592653589793], dtype=dtype) -
+                   az_correction.view(-1, 1))
 
         azimuth_tile = azimuth.unsqueeze(1).expand(-1, height, -1)
         inclination_tile = inclination.unsqueeze(2).expand(-1, -1, width)
 
-        range_image_polar = torch.stack([azimuth_tile, inclination_tile, range_image], dim=-1)
-    
+        range_image_polar = torch.stack(
+            [azimuth_tile, inclination_tile, range_image], dim=-1)
+
     return range_image_polar.to(dtype=range_image_dtype)
 
-def extract_point_cloud_from_range_image(range_image, extrinsic, inclination, pixel_pose=None, frame_pose=None, dtype=torch.float32):
+
+def extract_point_cloud_from_range_image(range_image,
+                                         extrinsic,
+                                         inclination,
+                                         pixel_pose=None,
+                                         frame_pose=None,
+                                         dtype=torch.float32):
     """Extracts point cloud from range image.
 
     Args:
@@ -237,12 +261,23 @@ def extract_point_cloud_from_range_image(range_image, extrinsic, inclination, pi
         range_image_cartesian: [B, H, W, 3] with {x, y, z} as inner dims in vehicle frame.
     """
     with torch.no_grad():
-        range_image_polar = compute_range_image_polar(range_image, extrinsic, inclination, dtype=dtype)
-        range_image_cartesian = compute_range_image_cartesian(range_image_polar, extrinsic, pixel_pose=pixel_pose, frame_pose=frame_pose, dtype=dtype)
-    
+        range_image_polar = compute_range_image_polar(
+            range_image, extrinsic, inclination, dtype=dtype)
+        range_image_cartesian = compute_range_image_cartesian(
+            range_image_polar,
+            extrinsic,
+            pixel_pose=pixel_pose,
+            frame_pose=frame_pose,
+            dtype=dtype)
+
     return range_image_cartesian
 
-def convert_range_image_to_cartesian(frame, range_images, range_image_top_pose, ri_index=0, keep_polar_features=False):
+
+def convert_range_image_to_cartesian(frame,
+                                     range_images,
+                                     range_image_top_pose,
+                                     ri_index=0,
+                                     keep_polar_features=False):
     """Convert range images from polar coordinates to Cartesian coordinates.
 
     Args:
@@ -260,7 +295,8 @@ def convert_range_image_to_cartesian(frame, range_images, range_image_top_pose, 
           keep_polar_features is True (range, intensity, elongation, x, y, z).
     """
     cartesian_range_images = {}
-    frame_pose = torch.tensor(np.reshape(np.array(frame.pose.transform), [4, 4]))
+    frame_pose = torch.tensor(
+        np.reshape(np.array(frame.pose.transform), [4, 4]))
 
     # [H, W, 6]
     range_image_top_pose_tensor = torch.reshape(
@@ -268,9 +304,11 @@ def convert_range_image_to_cartesian(frame, range_images, range_image_top_pose, 
         tuple(range_image_top_pose.shape.dims))
     # [H, W, 3, 3]
     range_image_top_pose_tensor_rotation = get_rotation_matrix(
-        range_image_top_pose_tensor[..., 0], range_image_top_pose_tensor[..., 1],
-        range_image_top_pose_tensor[..., 2])
-    range_image_top_pose_tensor_translation = range_image_top_pose_tensor[..., 3:]
+        range_image_top_pose_tensor[..., 0],
+        range_image_top_pose_tensor[..., 1], range_image_top_pose_tensor[...,
+                                                                         2])
+    range_image_top_pose_tensor_translation = range_image_top_pose_tensor[...,
+                                                                          3:]
     range_image_top_pose_tensor = get_transform(
         range_image_top_pose_tensor_rotation,
         range_image_top_pose_tensor_translation)
@@ -314,7 +352,13 @@ def convert_range_image_to_cartesian(frame, range_images, range_image_top_pose, 
 
     return cartesian_range_images
 
-def convert_range_image_to_point_cloud(frame, range_images, camera_projections, range_image_top_pose, ri_index=0, keep_polar_features=False):
+
+def convert_range_image_to_point_cloud(frame,
+                                       range_images,
+                                       camera_projections,
+                                       range_image_top_pose,
+                                       ri_index=0,
+                                       keep_polar_features=False):
     """Convert range images to point cloud.
 
     Args:
@@ -333,12 +377,14 @@ def convert_range_image_to_point_cloud(frame, range_images, camera_projections, 
         cp_points: {[N, 6]} list of camera projections of length 5
           (number of lidars).
     """
-    calibrations = sorted(frame.context.laser_calibrations, key=lambda c: c.name)
+    calibrations = sorted(
+        frame.context.laser_calibrations, key=lambda c: c.name)
     points = []
     cp_points = []
 
     cartesian_range_images = convert_range_image_to_cartesian(
-        frame, range_images, range_image_top_pose, ri_index, keep_polar_features)
+        frame, range_images, range_image_top_pose, ri_index,
+        keep_polar_features)
 
     for c in calibrations:
         range_image = range_images[c.name][ri_index]

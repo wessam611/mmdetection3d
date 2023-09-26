@@ -22,22 +22,24 @@ metainfo = dict(classes=class_names)
 
 point_cloud_range = [-74.88, -74.88, -2, 74.88, 74.88, 4]
 input_modality = dict(use_lidar=True, use_camera=False)
-db_sampler = dict(
-    rate=1.0,
-    batch_size=None,
-    prepare=dict(
-        filter_by_difficulty=[-1],
-        filter_by_min_points=dict(Car=5, Pedestrian=10, Cyclist=10)),
-    classes=class_names,
-    sample_groups=dict(Car=15, Pedestrian=10, Cyclist=10),
-    points_loader=dict(
-        type='LoadWaymoFrame',
-    ),
-    backend_args=backend_args)
+# db_sampler = dict(
+#     rate=1.0,
+#     batch_size=None,
+#     prepare=dict(
+#         filter_by_difficulty=[-1],
+#         filter_by_min_points=dict(Car=5, Pedestrian=10, Cyclist=10)),
+#     classes=class_names,
+#     sample_groups=dict(Car=15, Pedestrian=10, Cyclist=10),
+#     points_loader=dict(
+#         type='LoadWaymoFrame',
+#     ),
+#     backend_args=backend_args)
 
 train_pipeline = [
     dict(
         type='LoadWaymoFrame',
+        norm_intensity=True,
+        norm_elongation=True,
     ),
     dict(
         type='RandomFlip3D',
@@ -58,6 +60,8 @@ train_pipeline = [
 test_pipeline = [
     dict(
         type='LoadWaymoFrame',
+        norm_intensity=True,
+        norm_elongation=True,
     ),
     dict(
         type='MultiScaleFlipAug3D',
@@ -81,40 +85,49 @@ test_pipeline = [
 eval_pipeline = [
     dict(
         type='LoadWaymoFrame',
+        norm_intensity=True,
+        norm_elongation=True,
     ),
-    dict(type='Pack3DDetInputs', keys=['points', 'gt_bboxes_3d', 'gt_labels_3d', 'num_lidar_points_in_box'], meta_keys=['context', 'timestamp_micros', 'box_type_3d', 'box_mode_3d', 'sample_idx']),
+    dict(
+        type='Pack3DDetInputs',
+        keys=[
+            'points', 'gt_bboxes_3d', 'gt_labels_3d', 'num_lidar_points_in_box'
+        ],
+        meta_keys=[
+            'context', 'timestamp_micros', 'box_type_3d', 'box_mode_3d',
+            'sample_idx'
+        ]),
 ]
 
 train_dataloader = dict(
-    num_workers=4,
+    num_workers=2,
     persistent_workers=True,
     prefetch_factor=2,
     batch_size=8,
-    dataset=
-        dict(
-            type=dataset_type,
-            pipeline=train_pipeline,
-            modality=input_modality,
-            mode='train',
-            metainfo=metainfo,
-            repeat=True,
-            val_divs=1,
-            box_type_3d='LiDAR',
-            backend_args=backend_args
-            ))
+    dataset=dict(
+        type=dataset_type,
+        pipeline=train_pipeline,
+        modality=input_modality,
+        mode='train',
+        metainfo=metainfo,
+        repeat=True,
+        val_divs=1,
+        box_type_3d='LiDAR',
+        backend_args=backend_args))
 val_dataloader = dict(
     batch_size=8,
-    num_workers=8,
+    num_workers=2,
     prefetch_factor=2,
     persistent_workers=True,
     dataset=dict(
         type=dataset_type,
-        repeat = False,
+        repeat=False,
         pipeline=eval_pipeline,
         modality=input_modality,
         test_mode=True,
         mode='val',
-        val_divs=3,
+        val_divs=4,
+        num_parallel_reads=1,
         metainfo=metainfo,
         box_type_3d='LiDAR',
         backend_args=backend_args))
@@ -145,7 +158,9 @@ val_evaluator = dict(
     convert_kitti_format=False)
 test_evaluator = val_evaluator
 
-vis_backends = [dict(type='LocalVisBackend'),
-        dict(type='TensorboardVisBackend'),]
+vis_backends = [
+    dict(type='LocalVisBackend'),
+    dict(type='TensorboardVisBackend'),
+]
 visualizer = dict(
     type='Det3DLocalVisualizer', vis_backends=vis_backends, name='visualizer')
