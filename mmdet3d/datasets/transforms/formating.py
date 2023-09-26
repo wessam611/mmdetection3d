@@ -47,9 +47,10 @@ def to_tensor(
 
 @TRANSFORMS.register_module()
 class Pack3DDetInputs(BaseTransform):
-    INPUTS_KEYS = ['points', 'img']
+    INPUTS_KEYS = ['points', 'img', 'range_image', 'range_index']
     INSTANCEDATA_3D_KEYS = [
-        'gt_bboxes_3d', 'gt_labels_3d', 'attr_labels', 'depths', 'centers_2d', 'num_lidar_points_in_box'
+        'gt_bboxes_3d', 'gt_labels_3d', 'attr_labels', 'depths', 'centers_2d',
+        'num_lidar_points_in_box'
     ]
     INSTANCEDATA_2D_KEYS = [
         'gt_bboxes',
@@ -169,6 +170,12 @@ class Pack3DDetInputs(BaseTransform):
                     img = to_tensor(
                         np.ascontiguousarray(img.transpose(2, 0, 1)))
                 results['img'] = img
+
+        if 'range_index' in results:
+            results['range_index'] = to_tensor(results['range_index'])
+        if 'range_image' in results:
+            results['range_image'] = to_tensor(results['range_image']).permute(
+                2, 0, 1).contiguous()
 
         for key in [
                 'proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels',

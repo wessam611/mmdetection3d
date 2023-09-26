@@ -1,24 +1,24 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import mmcv
 import mmengine
 import numpy as np
 import tensorflow as tf
-from tensorflow import Tensor
 from mmcv.transforms import LoadImageFromFile
 from mmcv.transforms.base import BaseTransform
 from mmdet.datasets.transforms import LoadAnnotations
 from mmengine.fileio import get
-from waymo_open_dataset.utils import frame_utils
-from .waymo_utils import convert_range_image_to_point_cloud
+from tensorflow import Tensor
 from waymo_open_dataset import dataset_pb2 as open_dataset
+from waymo_open_dataset.utils import frame_utils
 
-from mmdet3d.structures import LiDARInstance3DBoxes
 from mmdet3d.registry import TRANSFORMS
+from mmdet3d.structures import LiDARInstance3DBoxes
 from mmdet3d.structures.bbox_3d import get_box_type
 from mmdet3d.structures.points import BasePoints, get_points_type
+from .waymo_utils import convert_range_image_to_point_cloud
 
 
 @TRANSFORMS.register_module()
@@ -1337,38 +1337,54 @@ class MultiModalityDet3DInferencerLoader(BaseTransform):
 
 @TRANSFORMS.register_module()
 class LoadWaymoFrame(BaseTransform):
-    """
+    """Loading waymo frame given serialized open_dataset.frame object.
+
+    Required keys:
+        coord_type (str, optional): Lidar, depth, camera. Defaults to 'LIDAR'.
+        use_dim (Union[int, List[int]], optional):
+            which dimenstions to use in which order. Defaults to [0, 1, 2, 3, 4].
+            [x, y, z, intensity, elongation]
+        norm_intensity (bool, optional):
+            whether to normalize intensity with tanh. Defaults to False.
+        norm_elongation (bool, optional):
+            whether to normalize elongation with tanh. Defaults to False.
+        used_lasers (List, optional):
+            which lidar sensors to be used. Defaults to [open_dataset.LaserName.TOP].
+        nlz_points (bool, optional):
+            whether to return no label zone. Defaults to False.
+        range_image (bool, optional): Defaults to False.
+        range_index (bool, optional):
+            pointcloud to rangeimage indices. Defaults to False.
+        filter_nlz_points (bool, optional):
+            whether to filterout no label zone points. Defaults to True.
+        target_classes (List, optional): Defaults to ['Car', 'Pedestrian', 'Cyclist'].
+        with_bbox_3d (bool, optional): Defaults to True.
+        with_label_3d (bool, optional): Defaults to True.
+    Added keys:
+        'points': pointcloud
+        'context': index to scene
+        'timestamp_micros': index to frame
+        'gt_bboxes_3d': bboxes
+        'gt_labels_3d': class labels for each box
+        'sample_idx': redundant
+        'num_lidar_points_in_box':
+            number of points in each bbox (needed for evaluation)
+        'range_index': pointcloud to range image indices
     """
 
     def __init__(self,
                  coord_type: str = 'LIDAR',
                  use_dim: Union[int, List[int]] = [0, 1, 2, 3, 4],
-                 shift_height: bool = False,
                  norm_intensity: bool = False,
                  norm_elongation: bool = False,
                  used_lasers: List = [open_dataset.LaserName.TOP],
                  nlz_points: bool = False,
-                 range_images: bool = False,
-                 range_image_masks: bool = False,
-                 use_ri2: bool = False,
-                 filter_nlz_points: bool = False,
-
+                 range_image: bool = False,
+                 range_index: bool = False,
+                 filter_nlz_points: bool = True,
                  target_classes: List = ['Car', 'Pedestrian', 'Cyclist'],
                  with_bbox_3d: bool = True,
-                 with_label_3d: bool = True,
-                 with_attr_label: bool = False,
-                 with_mask_3d: bool = False,
-                 with_seg_3d: bool = False,
-                 with_bbox: bool = False,
-                 with_label: bool = False,
-                 with_mask: bool = False,
-                 with_seg: bool = False,
-                 with_bbox_depth: bool = False,
-                 with_panoptic_3d: bool = False,
-                 seg_3d_dtype: str = 'np.int64',
-                 seg_offset: int = None):
-        """
-        """
+                 with_label_3d: bool = True):
         super().__init__()
         self.kitti_classes = ['Car', 'Pedestrian', 'Cyclist']
         self.class_mapping = {
@@ -1384,19 +1400,18 @@ class LoadWaymoFrame(BaseTransform):
 
         if isinstance(use_dim, int):
             use_dim = list(range(use_dim))
-        assert coord_type in ['LIDAR']#['CAMERA', 'LIDAR', 'DEPTH']
+        assert coord_type in ['LIDAR']  #['CAMERA', 'LIDAR', 'DEPTH']
 
         self.coord_type = coord_type
         self.use_dim = use_dim
         self.norm_intensity = norm_intensity
         self.norm_elongation = norm_elongation
-        self.shift_height = shift_height # not implemented
 
+        self.use_ri2 = True
         self.used_lasers = used_lasers
-        self.range_images = range_images
+        self.range_image = range_image
+        self.range_index = range_index
         self.nlz_points = nlz_points
-        self.range_image_masks = range_image_masks
-        self.use_ri2 = use_ri2
         self.filter_nlz_points = filter_nlz_points
 
         for c in target_classes:
@@ -1404,158 +1419,134 @@ class LoadWaymoFrame(BaseTransform):
         self.target_classes = target_classes
         self.with_bbox_3d = with_bbox_3d
         self.with_label_3d = with_label_3d
-        self.with_attr_label = with_attr_label
-        self.with_mask_3d = with_mask_3d
-        self.with_seg_3d = with_seg_3d
-        self.with_bbox = with_bbox
-        self.with_label = with_label
-        self.with_mask = with_mask
-        self.with_seg = with_seg
-        self.with_bbox_depth = with_bbox_depth
-        self.with_panoptic_3d = with_panoptic_3d
-        self.seg_3d_dtype = seg_3d_dtype
-        self.seg_offset = seg_offset
-
-    def _load_bbox_depth(self, results, frame_label) -> dict:
-        """
-        TODO
-        """
-        pass
-
-    def _load_seg_2d(self, results, frame_label) -> dict:
-        """
-        TODO
-        """
-        pass
-
-    def _load_mask_2d(self, results, frame_label) -> dict:
-        """
-        TODO
-        """
-        pass
-
-    def _load_label_2d(self, results, frame_label) -> dict:
-        """
-        TODO
-        """
-        pass
-
-    def _load_bbox_2d(self, results, frame_label) -> dict:
-        """
-        TODO
-        """
-        pass
-
-    def _load_bboxes_2d(self, results, frame_label) -> dict:
-        """
-        TODO
-        """
-        pass
-
-    def _load_seg_3d(self, results, frame) -> dict:
-        """
-        TODO
-        """
-        pass
-
-    def _load_masks_3d(self, results, frame) -> dict:
-        """
-        TODO
-        """
-        pass
 
     def _load_bboxes_3d(self, gt_bboxes_3d, frame_label) -> dict:
-        """
-        """
-        gt_bboxes_3d.append([frame_label.box.center_x,
-                                frame_label.box.center_y,
-                                frame_label.box.center_z-frame_label.box.height/2,
-                                frame_label.box.length,
-                                frame_label.box.width,
-                                frame_label.box.height,
-                                frame_label.box.heading])
+        """"""
+        gt_bboxes_3d.append([
+            frame_label.box.center_x, frame_label.box.center_y,
+            frame_label.box.center_z - frame_label.box.height / 2,
+            frame_label.box.length, frame_label.box.width,
+            frame_label.box.height, frame_label.box.heading
+        ])
         return gt_bboxes_3d
 
     def _load_label_3d(self, gt_labels_3d, frame_label) -> dict:
-        """
-        """
+        """"""
         kitti_label = self.class_mapping[self.type_list[frame_label.type]]
         gt_labels_3d.append(self.kitti_classes.index(kitti_label))
         return gt_labels_3d
 
-    def _load_attr_label(self, attr_labels, frame_label) -> dict:
+    def _parse_projected_lidar_labels(self, results,
+                                      projected_lidar_labels) -> dict:
         """
-        TODO
-        """
-        pass
-
-    def _parse_projected_lidar_labels(self, results, projected_lidar_labels) -> dict:
-        """
-        TODO
+        TODO: 2D labels for range image
         """
         return results
 
-    def _parse_laser_labels(self, results, laser_labels) -> dict:
-        """
-        """
-        in_targets = lambda _type: self.class_mapping[self.type_list[_type]] in self.target_classes
+    def _parse_laser_labels(self, results: Dict, laser_labels) -> dict:
+        """"""
+        in_targets = lambda _type: self.class_mapping[self.type_list[_type]
+                                                      ] in self.target_classes
         if self.with_bbox_3d:
             results['num_lidar_points_in_box'] = []
             for label in laser_labels:
                 if in_targets(label.type):
                     results['gt_bboxes_3d'] = self._load_bboxes_3d(
                         results.get('gt_bboxes_3d', []), label)
-                    results['num_lidar_points_in_box'].append(label.num_lidar_points_in_box)
-            results['gt_bboxes_3d'] = LiDARInstance3DBoxes(results.get('gt_bboxes_3d', []))
+                    results['num_lidar_points_in_box'].append(
+                        label.num_lidar_points_in_box)
+            results['gt_bboxes_3d'] = LiDARInstance3DBoxes(
+                results.get('gt_bboxes_3d', []))
         if self.with_label_3d:
             for label in laser_labels:
                 if in_targets(label.type):
                     results['gt_labels_3d'] = self._load_label_3d(
                         results.get('gt_labels_3d', []), label)
-            results['gt_labels_3d'] = np.asarray(results.get('gt_labels_3d', []), np.int64)
+            results['gt_labels_3d'] = np.asarray(
+                results.get('gt_labels_3d', []), np.int64)
         return results
 
-    def _load_labels(self, results, frame) -> dict:
+    def _load_labels(self, results: Dict, frame: open_dataset.Frame) -> dict:
+        """loads frame labels (3D & 2D) labels
+        note: currently we only use 3D labels
+
+        Args:
+            results (Dict): results dictionary to be updated
+            frame (open_dataset.Frame): waymo frame
+
+        Returns:
+            dict: updated results dictionary
         """
-        """
-        results = self._parse_projected_lidar_labels(results,
-            frame.projected_lidar_labels)
+        results = self._parse_projected_lidar_labels(
+            results, frame.projected_lidar_labels)
         results = self._parse_laser_labels(results, frame.laser_labels)
         return results
 
-    def _load_frame_inputs(self, results, frame, points, nlz_points, range_index) -> dict:
-        """
-        transforming objects read from tfrecord to the openmmlab format and applying 
-        configurations
-        
+    def _load_frame_inputs(self, results: Dict, frame: open_dataset.Frame,
+                           points: tf.Tensor, nlz_points: tf.Tensor,
+                           range_index: tf.Tensor) -> dict:
+        """transforming objects read from tfrecord to the openmmlab format and
+        applying configurations.
+
         Note: only points is handled in the current version (TODO)
 
         Args:
-            results (dict): dictionary to add the data to
-            frame: Waymo frame
-            points: pointcloud
-            nlz_points: no label zone
-            range_index: pointcloud to range_image indices (assumes r0&r1, flattenned range_image)
+            results (Dict): dictionary to add the data to
+            frame (open_dataset.Frame): Waymo frame
+            points (tf.Tensor): pointcloud
+            nlz_points (tf.Tensor): no label zone
+            range_index (tf.Tensor): pointcloud to range_image indices (assumes r0&r1, flattenned range_image)
 
         Returns:
-            dict: _description_
+            dict: results with added keys
+                'points': np.array(Nxdim),
+                'range_index': np.array(N, )
+                'range_image': np.array(H, W, 6) - r0&r1 of TOP LiDAR
         """
-        
+
         results['points'] = points[:, self.use_dim]
         if self.norm_intensity:
             assert 3 in self.use_dim
-            results['points'][:, self.use_dim.index(3)] = np.tanh(results['points'][:, self.use_dim.index(3)])
+            results['points'][:, self.use_dim.index(3)] = np.tanh(
+                results['points'][:, self.use_dim.index(3)])
         if self.norm_elongation:
             assert 4 in self.use_dim
-            results['points'][:, self.use_dim.index(4)] = np.tanh(results['points'][:, self.use_dim.index(4)])
+            results['points'][:, self.use_dim.index(4)] = np.tanh(
+                results['points'][:, self.use_dim.index(4)])
         points_class = get_points_type(self.coord_type)
         results['points'] = points_class(
             results['points'], points_dim=results['points'].shape[-1])
+        if self.range_index:
+            results['range_index'] = range_index
+        if self.range_image:
+            (range_images, camera_projections, seg_labels, range_image_top_pose
+             ) = frame_utils.parse_range_image_and_camera_projection(frame)
+            range_images = dict([(k, range_images[k])
+                                 for k in self.used_lasers])
+            for k, v in range_images.items():
+                range_images[k] = []
+                range_images[k].append(
+                    tf.reshape(
+                        tf.convert_to_tensor(value=v[0].data),
+                        v[0].shape.dims).numpy()[..., :3])
+                if self.use_ri2:
+                    range_images[k].append(
+                        tf.reshape(
+                            tf.convert_to_tensor(value=v[1].data),
+                            v[1].shape.dims).numpy()[..., :3])
+                    range_images[k] = np.concatenate(range_images[k], axis=-1)
+            range_image = range_images[self.used_lasers[0]]
+            results['range_image'] = range_image
+        if self.filter_nlz_points:
+            results['points'] = results['points'][nlz_points != 1.0]
+            if self.range_index:
+                results['range_index'] = results['range_index'][
+                    nlz_points != 1.0]
         return results
 
     def transform(self, buffer: Tensor) -> dict:
-        """Transforms waymo Frame buffer string to dictionary of input data
-        and labels
+        """Transforms waymo Frame buffer string to dictionary of input data and
+        labels.
 
         Args:
             frame_buffer (Tensor): buffer string representing current frame
@@ -1576,13 +1567,17 @@ class LoadWaymoFrame(BaseTransform):
         points = example['points']
         frame.ParseFromString(bytearray(frame_buffer.numpy()))
 
-        points = tf.io.decode_raw(points.values[0], out_type=tf.float32).numpy().reshape(-1, 6)
+        points = tf.io.decode_raw(
+            points.values[0], out_type=tf.float32).numpy().reshape(-1, 6)
         nlz_points = example['nlz_points']
-        nlz_points = tf.io.decode_raw(nlz_points.values[0], out_type=tf.float32).numpy()
+        nlz_points = tf.io.decode_raw(
+            nlz_points.values[0], out_type=tf.float32).numpy()
         range_index = example['range_index']
-        range_index = tf.io.decode_raw(range_index.values[0], out_type=tf.float32).numpy()
-    
-        results = self._load_frame_inputs(results, frame, points, nlz_points, range_index)
+        range_index = tf.io.decode_raw(
+            range_index.values[0], out_type=tf.float32).numpy()
+
+        results = self._load_frame_inputs(results, frame, points, nlz_points,
+                                          range_index)
         results = self._load_labels(results, frame)
         results['sample_idx'] = -1
         results['context'] = frame.context.name

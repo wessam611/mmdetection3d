@@ -540,3 +540,89 @@ class Det3DDataPreprocessor(DetDataPreprocessor):
         if return_inverse:
             outputs += [inverse_indices]
         return outputs
+
+
+@MODELS.register_module()
+class DetRF3DDataPreprocessor(Det3DDataPreprocessor):
+    """_summary_
+
+    Args:
+        Det3DDataPreprocessor (_type_): _description_
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.iter_count = 0
+
+    def forward(self,
+                data: Union[dict, List[dict]],
+                training: bool = False) -> Union[dict, List[dict]]:
+        """Perform normalization, padding and bgr2rgb conversion based on
+        ``BaseDataPreprocessor``.
+
+        Args:
+            data (dict or List[dict]): Data from dataloader. The dict contains
+                the whole batch data, when it is a list[dict], the list
+                indicates test time augmentation.
+            training (bool): Whether to enable training time augmentation.
+                Defaults to False.
+
+        Returns:
+            dict or List[dict]: Data in the same format as the model input.
+        """
+        for i, res in enumerate(data['inputs']['points']):
+            batch_dim = torch.zeros_like(data['inputs']['range_index'][i])
+            batch_dim[:] = i + 1
+            data['inputs']['points'][i] = torch.concat(
+                (data['inputs']['points'][i],
+                 data['inputs']['range_index'][i][:, None], batch_dim[:,
+                                                                      None]),
+                dim=-1)
+        data_out = super(DetRF3DDataPreprocessor, self).forward(data, training)
+        data_out['inputs']['vox_range_indices'] = data_out['inputs']['voxels'][
+            'voxels'][..., -2:].to(self.device).type(torch.int)
+        data_out['inputs']['vox_range_indices'][..., -1] -= 1
+        data_out['inputs']['voxels']['voxels'] = data_out['inputs']['voxels'][
+            'voxels'][..., :-2]
+        # TODO should be moved to collate_data
+        data_out['inputs']['range_image'] = torch.stack(
+            data['inputs']['range_image']).to(self.device)
+        range_cp = data_out['inputs']['range_image'].clone()
+        range_cp = range_cp.swapaxes(0, 1)[:3, ...].reshape(3,
+                                                            -1).swapaxes(0, 1)
+        mask = torch.any(
+            torch.stack([
+                range_cp[:, 0] == -1, range_cp[:, 1] == -1, range_cp[:,
+                                                                     2] == -1
+            ]),
+            dim=0)
+        cur_mean = torch.mean(range_cp[mask != True], dim=0)
+        cur_var = torch.var(range_cp[mask != True] - cur_mean, dim=0)
+        cur_min, _ = torch.min(range_cp[mask != True], dim=0)
+        cur_max, _ = torch.max(range_cp[mask != True], dim=0)
+        if self.iter_count == 0:
+            self.running_mean = cur_mean
+            self.running_var = cur_var
+            self.running_min = cur_min
+            self.running_max = cur_max
+        else:
+            n = self.iter_count
+            self.running_var = (n/(n+1))*self.running_var + (1/(n+1))*cur_var - \
+                torch.pow((n/(n+1))*self.running_mean + (1/(n+1))*cur_mean, 2) + \
+                    (n/(n+1))*torch.pow(self.running_mean, 2)+ (1/(n+1))*torch.pow(cur_mean, 2)
+            self.running_mean = (n / (n + 1)) * self.running_mean + (
+                1 / (n + 1)) * cur_mean
+            self.running_min, _ = torch.min(
+                torch.stack([self.running_min, cur_min]), dim=0)
+            self.running_max, _ = torch.max(
+                torch.stack([self.running_max, cur_max]), dim=0)
+        if self.iter_count % 50 == 0:
+            # print(cur_var)
+            print(f'\
+            mean: {self.running_mean}\n \
+            var: {self.running_var}\n\
+            min: {self.running_min}\n\
+            max: {self.running_max}\n')
+        self.iter_count += 1
+        # running_mean = torch.mean()
+        return data_out
