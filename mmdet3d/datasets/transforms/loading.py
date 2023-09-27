@@ -1,5 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
+import pickle
+from os.path import join
 from typing import Dict, List, Optional, Union
 
 import mmcv
@@ -1360,6 +1362,8 @@ class LoadWaymoFrame(BaseTransform):
         target_classes (List, optional): Defaults to ['Car', 'Pedestrian', 'Cyclist'].
         with_bbox_3d (bool, optional): Defaults to True.
         with_label_3d (bool, optional): Defaults to True.
+        pkl_files_path: path where pointclouds, nlz_points,
+                and range index are stored
     Added keys:
         'points': pointcloud
         'context': index to scene
@@ -1384,7 +1388,8 @@ class LoadWaymoFrame(BaseTransform):
                  filter_nlz_points: bool = True,
                  target_classes: List = ['Car', 'Pedestrian', 'Cyclist'],
                  with_bbox_3d: bool = True,
-                 with_label_3d: bool = True):
+                 with_label_3d: bool = True,
+                 pkl_files_path: str = None):
         super().__init__()
         self.kitti_classes = ['Car', 'Pedestrian', 'Cyclist']
         self.class_mapping = {
@@ -1413,6 +1418,7 @@ class LoadWaymoFrame(BaseTransform):
         self.range_index = range_index
         self.nlz_points = nlz_points
         self.filter_nlz_points = filter_nlz_points
+        self.pkl_files_path = pkl_files_path
 
         for c in target_classes:
             assert c in self.kitti_classes
@@ -1508,7 +1514,7 @@ class LoadWaymoFrame(BaseTransform):
         if self.norm_intensity:
             assert 3 in self.use_dim
             results['points'][:, self.use_dim.index(3)] = np.tanh(
-                results['points'][:, self.use_dim.index(3)])
+                results['points'][:, self.use_dim.index(3)] / 255)
         if self.norm_elongation:
             assert 4 in self.use_dim
             results['points'][:, self.use_dim.index(4)] = np.tanh(
@@ -1556,32 +1562,22 @@ class LoadWaymoFrame(BaseTransform):
         """
         results = {}
         frame = open_dataset.Frame()
-        feature_description = {
-            'frame': tf.io.FixedLenFeature([], tf.string),
-            'points': tf.io.VarLenFeature(tf.string),
-            'nlz_points': tf.io.VarLenFeature(tf.string),
-            'range_index': tf.io.VarLenFeature(tf.string)
-        }
-        example = tf.io.parse_single_example(buffer, feature_description)
-        frame_buffer = example['frame']
-        points = example['points']
-        frame.ParseFromString(bytearray(frame_buffer.numpy()))
-
-        points = tf.io.decode_raw(
-            points.values[0], out_type=tf.float32).numpy().reshape(-1, 6)
-        nlz_points = example['nlz_points']
-        nlz_points = tf.io.decode_raw(
-            nlz_points.values[0], out_type=tf.float32).numpy()
-        range_index = example['range_index']
-        range_index = tf.io.decode_raw(
-            range_index.values[0], out_type=tf.float32).numpy()
-
+        frame.ParseFromString(bytearray(buffer.numpy()))
+        results['context'] = frame.context.name
+        results['timestamp_micros'] = frame.timestamp_micros
+        with open(
+                join(
+                    self.pkl_files_path,
+                    f'{results["context"]}_{results["timestamp_micros"]}.pkl'),
+                'rb') as pkl_file:
+            pkl_dict = pickle.load(pkl_file)
+        points = pkl_dict['points']
+        nlz_points = pkl_dict['nlz_points']
+        range_index = pkl_dict['range_index']
         results = self._load_frame_inputs(results, frame, points, nlz_points,
                                           range_index)
         results = self._load_labels(results, frame)
         results['sample_idx'] = -1
-        results['context'] = frame.context.name
-        results['timestamp_micros'] = frame.timestamp_micros
         self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
         results['box_type_3d'] = self.box_type_3d
         results['box_mode_3d'] = self.box_mode_3d

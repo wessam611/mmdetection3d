@@ -544,15 +544,25 @@ class Det3DDataPreprocessor(DetDataPreprocessor):
 
 @MODELS.register_module()
 class DetRF3DDataPreprocessor(Det3DDataPreprocessor):
-    """_summary_
+    """Added modifications related to range image."""
 
-    Args:
-        Det3DDataPreprocessor (_type_): _description_
-    """
+    def normalize_range_image(self, results: dict):
+        """normalizes range image.
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.iter_count = 0
+        Args:
+            results (dict): results with normalized range image
+        """
+        range_image = results['inputs']['range_image'].swapaxes(0, 1)
+        missing_r0 = range_image[0] == -1
+        missing_r1 = range_image[3] == -1
+        range_image[:, missing_r0][:3] = 0
+        range_image[:, missing_r1][3:] = 0
+        results['inputs']['range_image'] = range_image.swapaxes(0, 1)
+        results['inputs']['range_image'][:, [0, 3]] *= 1 / 75
+        results['inputs']['range_image'][:, [1, 4]] *= 1 / 255
+        results['inputs']['range_image'][:, [1, 2, 4, 5]] = torch.tanh(
+            results['inputs']['range_image'][:, [1, 2, 4, 5]])
+        return results
 
     def forward(self,
                 data: Union[dict, List[dict]],
@@ -587,42 +597,6 @@ class DetRF3DDataPreprocessor(Det3DDataPreprocessor):
         # TODO should be moved to collate_data
         data_out['inputs']['range_image'] = torch.stack(
             data['inputs']['range_image']).to(self.device)
-        range_cp = data_out['inputs']['range_image'].clone()
-        range_cp = range_cp.swapaxes(0, 1)[:3, ...].reshape(3,
-                                                            -1).swapaxes(0, 1)
-        mask = torch.any(
-            torch.stack([
-                range_cp[:, 0] == -1, range_cp[:, 1] == -1, range_cp[:,
-                                                                     2] == -1
-            ]),
-            dim=0)
-        cur_mean = torch.mean(range_cp[mask != True], dim=0)
-        cur_var = torch.var(range_cp[mask != True] - cur_mean, dim=0)
-        cur_min, _ = torch.min(range_cp[mask != True], dim=0)
-        cur_max, _ = torch.max(range_cp[mask != True], dim=0)
-        if self.iter_count == 0:
-            self.running_mean = cur_mean
-            self.running_var = cur_var
-            self.running_min = cur_min
-            self.running_max = cur_max
-        else:
-            n = self.iter_count
-            self.running_var = (n/(n+1))*self.running_var + (1/(n+1))*cur_var - \
-                torch.pow((n/(n+1))*self.running_mean + (1/(n+1))*cur_mean, 2) + \
-                    (n/(n+1))*torch.pow(self.running_mean, 2)+ (1/(n+1))*torch.pow(cur_mean, 2)
-            self.running_mean = (n / (n + 1)) * self.running_mean + (
-                1 / (n + 1)) * cur_mean
-            self.running_min, _ = torch.min(
-                torch.stack([self.running_min, cur_min]), dim=0)
-            self.running_max, _ = torch.max(
-                torch.stack([self.running_max, cur_max]), dim=0)
-        if self.iter_count % 50 == 0:
-            # print(cur_var)
-            print(f'\
-            mean: {self.running_mean}\n \
-            var: {self.running_var}\n\
-            min: {self.running_min}\n\
-            max: {self.running_max}\n')
-        self.iter_count += 1
-        # running_mean = torch.mean()
+
+        data_out = self.normalize_range_image(data_out)
         return data_out

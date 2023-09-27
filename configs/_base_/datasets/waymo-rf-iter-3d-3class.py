@@ -34,7 +34,8 @@ db_sampler = dict(
         type='LoadWaymoFrame',
         norm_intensity=True,
         norm_elongation=True,
-    ),
+        pkl_files_path=
+        'data/waymo/waymo_format/records_shuffled/training/pre_data/'),
     backend_args=backend_args)
 
 train_pipeline = [
@@ -44,19 +45,20 @@ train_pipeline = [
         range_image=True,
         norm_intensity=True,
         norm_elongation=True,
-    ),
-    # dict(
-    #     type='RandomFlip3D',
-    #     sync_2d=False,
-    #     flip_ratio_bev_horizontal=0.999,
-    #     flip_ratio_bev_vertical=0.999),
-    # dict(
-    #     type='GlobalRotScaleTrans',
-    #     rot_range=[-0.78539816, 0.78539816],
-    #     scale_ratio_range=[0.95, 1.05]),
-    # dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
-    # dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
-    # dict(type='PointShuffle'),
+        pkl_files_path=
+        'data/waymo/waymo_format/records_shuffled/training/pre_data/'),
+    dict(
+        type='RandomFlip3D',
+        sync_2d=False,
+        flip_ratio_bev_horizontal=0.999,
+        flip_ratio_bev_vertical=0.999),
+    dict(
+        type='GlobalRotScaleTrans',
+        rot_range=[-0.78539816, 0.78539816],
+        scale_ratio_range=[0.95, 1.05]),
+    dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='PointShuffle'),
     dict(
         type='Pack3DDetInputs',
         keys=[
@@ -71,7 +73,8 @@ test_pipeline = [
         range_image=True,
         norm_intensity=True,
         norm_elongation=True,
-    ),
+        pkl_files_path=
+        'data/waymo/waymo_format/records_shuffled/testing/pre_data/'),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),
@@ -99,7 +102,8 @@ eval_pipeline = [
         range_image=True,
         norm_intensity=True,
         norm_elongation=True,
-    ),
+        pkl_files_path=
+        'data/waymo/waymo_format/records_shuffled/validation/pre_data/'),
     dict(
         type='Pack3DDetInputs',
         keys=[
@@ -113,10 +117,10 @@ eval_pipeline = [
 ]
 
 train_dataloader = dict(
-    num_workers=8,
+    num_workers=2,
     persistent_workers=True,
     prefetch_factor=2,
-    batch_size=4,
+    batch_size=3,
     dataset=dict(
         type=dataset_type,
         pipeline=train_pipeline,
@@ -128,10 +132,10 @@ train_dataloader = dict(
         box_type_3d='LiDAR',
         backend_args=backend_args))
 val_dataloader = dict(
-    batch_size=6,
-    num_workers=3,
+    batch_size=4,
+    num_workers=2,
     prefetch_factor=2,
-    persistent_workers=True,
+    persistent_workers=False,
     dataset=dict(
         type=dataset_type,
         repeat=False,
@@ -152,7 +156,26 @@ test_dataloader = dict(
     drop_last=False,
     dataset=dict(
         type=dataset_type,
-        pipeline=eval_pipeline,
+        pipeline=[
+            dict(
+                type='LoadWaymoFrame',
+                range_index=True,
+                range_image=True,
+                norm_intensity=True,
+                norm_elongation=True,
+                pkl_files_path=
+                'data/waymo/waymo_format/records_shuffled/testing/pre_data/'),
+            dict(
+                type='Pack3DDetInputs',
+                keys=[
+                    'points', 'range_image', 'range_index', 'gt_bboxes_3d',
+                    'gt_labels_3d', 'num_lidar_points_in_box'
+                ],
+                meta_keys=[
+                    'context', 'timestamp_micros', 'box_type_3d',
+                    'box_mode_3d', 'sample_idx'
+                ]),
+        ],
         modality=input_modality,
         test_mode=True,
         val_divs=1,

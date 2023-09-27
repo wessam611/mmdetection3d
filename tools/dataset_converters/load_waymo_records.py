@@ -1,4 +1,5 @@
 import os
+import pickle
 
 import matplotlib.patches as patches
 import numpy as np
@@ -104,38 +105,30 @@ def create_pd_file_example(out_path, cloud_path):
                                          num_parallel_reads=1,
                                          compression_type='')
             if split == 'training':
-                ds = ds.shuffle(100)
+                ds = ds.shuffle(200)
             with tf.io.TFRecordWriter(
                     f'{out_path}/{split}/{file.split("/")[-1]}') as writer:
                 for elem in tqdm(ds):
                     frame.ParseFromString(bytearray(elem.numpy()))
                     points, nlz_points, range_index = load_frame_inputs(frame)
-                    feature = {
-                        'frame':
-                        tf.train.Feature(
-                            bytes_list=tf.train.BytesList(
-                                value=[frame.SerializeToString()])),
-                        'points':
-                        tf.train.Feature(
-                            bytes_list=tf.train.BytesList(
-                                value=[points.tobytes()])),
-                        'nlz_points':
-                        tf.train.Feature(
-                            bytes_list=tf.train.BytesList(
-                                value=[nlz_points.tobytes()])),
-                        'range_index':
-                        tf.train.Feature(
-                            bytes_list=tf.train.BytesList(
-                                value=[range_index.tobytes()]))
+
+                    data_dict = {
+                        'points': points,
+                        'nlz_points': nlz_points,
+                        'range_index': range_index
                     }
+                    with open(
+                            os.path.join(
+                                out_path,
+                                f'{split}/pre_data/{frame.context.name}_{frame.timestamp_micros}.pkl'
+                            ), 'wb') as f_pkl:
+                        pickle.dump(data_dict, f_pkl)
 
-                    example = tf.train.Example(
-                        features=tf.train.Features(feature=feature))
-                    writer.write(example.SerializeToString())
+                    writer.write(bytearray(elem.numpy()))
 
-        Parallel(n_jobs=32)(delayed(write_file)(file) for file in split_files)
+        Parallel(n_jobs=64)(delayed(write_file)(file) for file in split_files)
 
 
 create_pd_file_example(
-    '/home/source/mmdetection3d/data/waymo/waymo_format/records',
+    '/home/source/mmdetection3d/data/waymo/waymo_format/records_shuffled',
     'gs://waymo_open_dataset_v_1_4_1//individual_files/')

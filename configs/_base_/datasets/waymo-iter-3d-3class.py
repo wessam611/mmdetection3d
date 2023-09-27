@@ -40,7 +40,8 @@ train_pipeline = [
         type='LoadWaymoFrame',
         norm_intensity=True,
         norm_elongation=True,
-    ),
+        pkl_files_path=
+        'data/waymo/waymo_format/records_shuffled/training/pre_data/'),
     dict(
         type='RandomFlip3D',
         sync_2d=False,
@@ -62,7 +63,8 @@ test_pipeline = [
         type='LoadWaymoFrame',
         norm_intensity=True,
         norm_elongation=True,
-    ),
+        pkl_files_path=
+        'data/waymo/waymo_format/records_shuffled/testing/pre_data/'),
     dict(
         type='MultiScaleFlipAug3D',
         img_scale=(1333, 800),
@@ -87,7 +89,8 @@ eval_pipeline = [
         type='LoadWaymoFrame',
         norm_intensity=True,
         norm_elongation=True,
-    ),
+        pkl_files_path=
+        'data/waymo/waymo_format/records_shuffled/validation/pre_data/'),
     dict(
         type='Pack3DDetInputs',
         keys=[
@@ -140,7 +143,24 @@ test_dataloader = dict(
     drop_last=False,
     dataset=dict(
         type=dataset_type,
-        pipeline=eval_pipeline,
+        pipeline=[
+            dict(
+                type='LoadWaymoFrame',
+                norm_intensity=True,
+                norm_elongation=True,
+                pkl_files_path=
+                'data/waymo/waymo_format/records_shuffled/testing/pre_data/'),
+            dict(
+                type='Pack3DDetInputs',
+                keys=[
+                    'points', 'gt_bboxes_3d', 'gt_labels_3d',
+                    'num_lidar_points_in_box'
+                ],
+                meta_keys=[
+                    'context', 'timestamp_micros', 'box_type_3d',
+                    'box_mode_3d', 'sample_idx'
+                ]),
+        ],
         modality=input_modality,
         test_mode=True,
         val_divs=1,
@@ -152,7 +172,7 @@ test_dataloader = dict(
 val_evaluator = dict(
     type='IterWaymoMetric',
     ann_file='./data/waymo/kitti_format/waymo_infos_val.pkl',
-    waymo_bin_file='./data/waymo/waymo_format/gt.bin',
+    waymo_bin_file='.data/waymo/waymo_format/gt.bin',
     data_root='gs://waymo_open_dataset_v_1_4_1/individual_files/',
     backend_args=backend_args,
     convert_kitti_format=False)

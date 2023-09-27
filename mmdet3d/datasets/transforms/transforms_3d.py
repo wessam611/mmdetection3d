@@ -824,6 +824,8 @@ class PointShuffle(BaseTransform):
         """
         idx = input_dict['points'].shuffle()
         idx = idx.numpy()
+        if 'range_index' in input_dict:
+            input_dict['range_index'] = input_dict['range_index'][idx]
 
         pts_instance_mask = input_dict.get('pts_instance_mask', None)
         pts_semantic_mask = input_dict.get('pts_semantic_mask', None)
@@ -937,6 +939,8 @@ class PointsRangeFilter(BaseTransform):
         clean_points = points[points_mask]
         input_dict['points'] = clean_points
         points_mask = points_mask.numpy()
+        if 'range_index' in input_dict:
+            input_dict['range_index'] = input_dict['range_index'][points_mask]
 
         pts_instance_mask = input_dict.get('pts_instance_mask', None)
         pts_semantic_mask = input_dict.get('pts_semantic_mask', None)

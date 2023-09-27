@@ -38,7 +38,7 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
                  mode: str = 'train',
                  val_divs: int = 5,
                  domain_adaptation: bool = False,
-                 num_parallel_reads: int = 80,
+                 num_parallel_reads: int = 200,
                  pipeline: List[Union[dict, Callable]] = [],
                  modality: dict = dict(use_lidar=True, use_camera=False),
                  default_cam_key: str = None,
@@ -60,7 +60,8 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
         # some variables are still based on loading files from the cloud directly
         # however the code has been changed to read from disk directly with
         # preprocessed pointclouds. current path is pointing to disk
-        cloud_bucket = tfds.core.Path('data/waymo/waymo_format/records/')
+        cloud_bucket = tfds.core.Path(
+            'data/waymo/waymo_format/records_shuffled/')
         self.mode = mode
         self._fully_initialized = True
         self.val_divs = val_divs
