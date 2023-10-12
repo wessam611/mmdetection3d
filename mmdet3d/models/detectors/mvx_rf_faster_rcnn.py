@@ -51,17 +51,18 @@ class MVXRFFasterRCNN(MVXFasterRCNN):
         batch_size = voxel_dict['coors'][-1, 0] + 1
         bev_vox_indices = self.get_bev_to_range_indices(
             voxel_dict['coors'], batch_size)
-        range_feats = self.rf_net(range_image)
 
         pts_feats = self.extract_pts_feat(
             voxel_dict,
             points=points,
             img_feats=img_feats,
-            batch_input_metas=batch_input_metas)
+            batch_input_metas=batch_input_metas)  # -> BEV features
+        """"""
+        range_feats = self.rf_net(range_image)  # -> RANGE-VIEW features
         pts_feats = self.stack_pts_rv_feats(
             pts_feats, range_feats, batch_inputs_dict['vox_range_indices'],
             bev_vox_indices)
-
+        """"""
         return (img_feats, pts_feats)
 
     def stack_pts_rv_feats(self, pts_feats, range_feats, vox_range_indices,

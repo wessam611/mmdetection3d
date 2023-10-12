@@ -1399,6 +1399,8 @@ class LoadWaymoFrame(BaseTransform):
             'VEHICLE': 'Car',
             'SIGN': 'Sign'
         }
+        _inf = int(1e4)
+        self.class_min_points = [_inf, 5, 5, _inf, 5]
         self.type_list = [
             'UNKNOWN', 'VEHICLE', 'PEDESTRIAN', 'SIGN', 'CYCLIST'
         ]
@@ -1456,7 +1458,8 @@ class LoadWaymoFrame(BaseTransform):
         if self.with_bbox_3d:
             results['num_lidar_points_in_box'] = []
             for label in laser_labels:
-                if in_targets(label.type):
+                if in_targets(
+                        label.type) and label.num_lidar_points_in_box != 0:
                     results['gt_bboxes_3d'] = self._load_bboxes_3d(
                         results.get('gt_bboxes_3d', []), label)
                     results['num_lidar_points_in_box'].append(
@@ -1465,7 +1468,8 @@ class LoadWaymoFrame(BaseTransform):
                 results.get('gt_bboxes_3d', []))
         if self.with_label_3d:
             for label in laser_labels:
-                if in_targets(label.type):
+                if in_targets(
+                        label.type) and label.num_lidar_points_in_box != 0:
                     results['gt_labels_3d'] = self._load_label_3d(
                         results.get('gt_labels_3d', []), label)
             results['gt_labels_3d'] = np.asarray(
@@ -1550,7 +1554,7 @@ class LoadWaymoFrame(BaseTransform):
                     nlz_points != 1.0]
         return results
 
-    def transform(self, buffer: Tensor) -> dict:
+    def transform(self, pkl_path) -> dict:
         """Transforms waymo Frame buffer string to dictionary of input data and
         labels.
 
@@ -1562,15 +1566,9 @@ class LoadWaymoFrame(BaseTransform):
         """
         results = {}
         frame = open_dataset.Frame()
-        frame.ParseFromString(bytearray(buffer.numpy()))
-        results['context'] = frame.context.name
-        results['timestamp_micros'] = frame.timestamp_micros
-        with open(
-                join(
-                    self.pkl_files_path,
-                    f'{results["context"]}_{results["timestamp_micros"]}.pkl'),
-                'rb') as pkl_file:
+        with open(pkl_path, 'rb') as pkl_file:
             pkl_dict = pickle.load(pkl_file)
+        frame.ParseFromString(bytearray(pkl_dict['frame']))
         points = pkl_dict['points']
         nlz_points = pkl_dict['nlz_points']
         range_index = pkl_dict['range_index']
@@ -1581,5 +1579,7 @@ class LoadWaymoFrame(BaseTransform):
         self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
         results['box_type_3d'] = self.box_type_3d
         results['box_mode_3d'] = self.box_mode_3d
+        results['context'] = frame.context.name
+        results['timestamp_micros'] = frame.timestamp_micros
 
         return results

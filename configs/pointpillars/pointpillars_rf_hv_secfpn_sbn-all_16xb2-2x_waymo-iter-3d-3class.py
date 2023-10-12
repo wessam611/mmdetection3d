@@ -12,10 +12,21 @@ optim_wrapper = dict(optimizer=dict(lr=lr))
 #       or not by default.
 #   - `base_batch_size` = (16 GPUs) x (2 samples per GPU).
 auto_scale_lr = dict(enable=False, base_batch_size=32)
-train_cfg = dict(
-    type='IterBasedTrainLoop',
-    max_iters=120000,
-    val_interval=14000,
-    _delete_=True)
+param_scheduler = [
+    dict(
+        type='LinearLR',
+        start_factor=1.0 / 1000,
+        by_epoch=False,
+        begin=0,
+        end=1000),
+    dict(
+        type='MultiStepLR',
+        begin=0,
+        end=24,
+        by_epoch=True,
+        milestones=[20, 23],
+        gamma=0.1)
+]
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=24, val_interval=6)
 default_hooks = dict(
-    checkpoint=dict(type='CheckpointHook', by_epoch=False, interval=15000))
+    checkpoint=dict(type='CheckpointHook', by_epoch=True, interval=1))

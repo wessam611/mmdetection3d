@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-import itertools
+import glob
 import math
 import os
 import random
@@ -22,7 +22,7 @@ from .det3d_dataset import Det3DDataset
 
 
 @DATASETS.register_module()
-class IterWaymoDataset(IterableDataset, Det3DDataset):
+class IterWaymoDataset(Det3DDataset):
     """"""
     METAINFO = {
         'classes': ('Car', 'Pedestrian', 'Cyclist'),
@@ -34,10 +34,8 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
     }
 
     def __init__(self,
-                 cloud_bucket_version: str = 'v_1_4_1',
                  mode: str = 'train',
                  val_divs: int = 5,
-                 domain_adaptation: bool = False,
                  num_parallel_reads: int = 200,
                  pipeline: List[Union[dict, Callable]] = [],
                  modality: dict = dict(use_lidar=True, use_camera=False),
@@ -46,36 +44,25 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
                  filter_empty_gt: bool = True,
                  show_ins_var: bool = False,
                  repeat: bool = False,
+                 skips_n: int = 5,
                  **kwargs):
-        assert cloud_bucket_version in [
-            'v_1_3_2', 'v_1_4_0', 'v_1_4_1', 'v_1_4_2'
-        ], f'GCS bucket version {cloud_bucket_version} is not supported'
-        assert not domain_adaptation, 'domain adaptation is not yet supported'
         assert mode in ['train', 'val', 'test']
         mode_folders = {
             'train': 'training',
             'val': 'validation',
             'test': 'testing'
         }
-        # some variables are still based on loading files from the cloud directly
-        # however the code has been changed to read from disk directly with
-        # preprocessed pointclouds. current path is pointing to disk
-        cloud_bucket = tfds.core.Path(
-            'data/waymo/waymo_format/records_shuffled/')
         self.mode = mode
         self._fully_initialized = True
         self.val_divs = val_divs
         self.repeat = repeat
+        self.pkl_files = sorted(
+            glob.glob(
+                f'data/waymo/waymo_format/records_shuffled/{mode_folders[self.mode]}/pre_data/*.pkl'
+            ))
+        self.skips_n = skips_n
 
-        self.bucket_files = tf.io.gfile.glob(
-            os.path.join(cloud_bucket, f'{mode_folders[self.mode]}/segment*'))
-        self.used_files = self.bucket_files
-        if self.mode != 'train' and self.val_divs > 1:
-            partition_index = random.randint(0, self.val_divs - 1)
-            files_no = math.ceil(len(self.used_files) / self.val_divs)
-            self.used_files = self.used_files[files_no * partition_index:min(
-                files_no * (partition_index + 1), len(self.used_files))]
-        self._len_used_files = len(self.used_files)
+        self.length = len(self.pkl_files) // self.skips_n
 
         Det3DDataset.__init__(
             self,
@@ -87,45 +74,8 @@ class IterWaymoDataset(IterableDataset, Det3DDataset):
             show_ins_var=show_ins_var,
             **kwargs)
 
-        self.num_parallel_reads = num_parallel_reads
-        self.filter_empty_gt = filter_empty_gt
-        torch.multiprocessing.set_sharing_strategy('file_system')
-
-    def _build_torch_dataset_iter(self, bucket_files) -> Iterable:
-        random.shuffle(bucket_files)
-        ds = tf.data.TFRecordDataset(
-            bucket_files,
-            num_parallel_reads=self.num_parallel_reads,
-            compression_type='')
-        torch_ds = IterableWrapper(ds)
-        torch_ds = torch_ds.map(self.pipeline)
-        return torch_ds
-
-    def __iter__(self) -> dict:
-        """"""
-        try:
-            worker_total_num = torch.utils.data.get_worker_info().num_workers
-            worker_id = torch.utils.data.get_worker_info().id
-            previous_files = round(worker_id * len(self.used_files) /
-                                   worker_total_num)
-            files_no = round((len(self.used_files) - previous_files) /
-                             (worker_total_num - worker_id))
-            files = self.used_files[
-                previous_files:min(previous_files +
-                                   files_no, len(self.used_files))]
-        except Exception as e:
-            files = self.used_files
-
-        while (True):
-            self.torch_ds = self._build_torch_dataset_iter(files)
-            for elem in self.torch_ds:
-                if len(elem['data_samples'].gt_instances_3d) or not (
-                        self.filter_empty_gt and self.mode == 'train'):
-                    yield elem
-            if not self.repeat:
-                break
+    def __getitem__(self, index) -> dict:
+        return self.pipeline(self.pkl_files[index * self.skips_n])
 
     def __len__(self) -> int:
-        if self.repeat:
-            return int(8 * 120000)  # TODO: not hardcoded
-        return self._len_used_files * 200  # approx
+        return self.length

@@ -29,7 +29,7 @@ class IterWaymoMetric(WaymoMetric):
     num_cams = 5
 
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(prefix='Waymo metric', *args, **kwargs)
         self.k2w_cls_map = {
             'Car': label_pb2.Label.TYPE_VEHICLE,
             'Pedestrian': label_pb2.Label.TYPE_PEDESTRIAN,
@@ -91,8 +91,8 @@ class IterWaymoMetric(WaymoMetric):
             file_idx (int): file name of the tmp file
         """
 
-        waymo_results_save_file = f'{self.gt_col_tmp_dir.name}/{file_idx}.bin'
-        waymo_gt_save_file = f'{self.pred_col_tmp_dir.name}/{file_idx}.bin'
+        waymo_results_save_file = f'{self.pred_col_tmp_dir.name}/{file_idx}.bin'
+        waymo_gt_save_file = f'{self.gt_col_tmp_dir.name}/{file_idx}.bin'
 
         final_results = results
         for res in final_results:
@@ -228,9 +228,7 @@ class IterWaymoMetric(WaymoMetric):
 
         for instance_idx in range(len(instances['labels_3d'])):
             o = parse_one_object(instance_idx)
-            if o.object.num_lidar_points_in_box > 50 or 'num_lidar_points_in_box' not in instances:
-                o.object.num_lidar_points_in_box = 50
-                objects_ret.objects.append(o)
+            objects_ret.objects.append(o)
 
     def combine(self, pathnames: List[str]) -> metrics_pb2.Objects:
         """Combine predictions in waymo format for each sample together.
