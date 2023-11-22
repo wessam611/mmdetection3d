@@ -546,6 +546,10 @@ class Det3DDataPreprocessor(DetDataPreprocessor):
 class DetRF3DDataPreprocessor(Det3DDataPreprocessor):
     """Added modifications related to range image."""
 
+    def __init__(self, range_xyz_coo=False, *args, **kwargs):
+        super(DetRF3DDataPreprocessor, self).__init__(*args, **kwargs)
+        self.range_xyz_coo = range_xyz_coo
+
     def normalize_range_image(self, results: dict):
         """normalizes range image.
 
@@ -557,6 +561,7 @@ class DetRF3DDataPreprocessor(Det3DDataPreprocessor):
         missing_r1 = range_image[3] == -1
         range_image[:, missing_r0][:3] = 0
         range_image[:, missing_r1][3:] = 0
+        # TODO: REVISE
         results['inputs']['range_image'] = range_image.swapaxes(0, 1)
         results['inputs']['range_image'][:, [0, 3]] *= 1 / 75
         results['inputs']['range_image'][:, [1, 4]] *= 1 / 255
@@ -597,6 +602,24 @@ class DetRF3DDataPreprocessor(Det3DDataPreprocessor):
         # TODO should be moved to collate_data
         data_out['inputs']['range_image'] = torch.stack(
             data['inputs']['range_image']).to(self.device)
+        if self.range_xyz_coo:
+            range_xyz_coo = torch.zeros_like(
+                data_out['inputs']['range_image'], device=self.device).flatten(
+                    2, 3) - 1
+            for i in range(range_xyz_coo.shape[0]):
+                range_inds = data['inputs']['range_index'][i]
+                inds_r1 = range_inds[
+                    range_inds < range_xyz_coo.shape[-1]].type(torch.int32)
+                inds_r2 = (range_inds[range_inds >= range_xyz_coo.shape[-1]] -
+                           range_xyz_coo.shape[-1]).type(torch.int32)
+                range_xyz_coo[i, :3, inds_r1] = data['inputs']['points'][i].to(
+                    self.device)[[range_inds < range_xyz_coo.shape[-1]
+                                  ]][:, :3].transpose(0, 1)
+                range_xyz_coo[i, 3:, inds_r2] = data['inputs']['points'][i].to(
+                    self.device)[[range_inds >= range_xyz_coo.shape[-1]
+                                  ]][:, :3].transpose(0, 1)
+            data_out['inputs']['range_xyz_coo'] = range_xyz_coo.reshape(
+                data_out['inputs']['range_image'].shape)
 
         data_out = self.normalize_range_image(data_out)
         return data_out

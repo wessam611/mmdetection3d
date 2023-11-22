@@ -4,6 +4,7 @@ from mmdet.models.backbones import SSDVGG, HRNet, ResNet, ResNetV1d, ResNeXt
 from .cylinder3d import Asymm3DSpconv
 from .dgcnn import DGCNNBackbone
 from .dla import DLANet
+from .dla_rv_backbone import DLABackbone
 from .mink_resnet import MinkResNet
 from .minkunet_backbone import MinkUNetBackbone
 from .multi_backbone import MultiBackbone
@@ -17,5 +18,5 @@ __all__ = [
     'ResNet', 'ResNetV1d', 'ResNeXt', 'SSDVGG', 'HRNet', 'NoStemRegNet',
     'SECOND', 'DGCNNBackbone', 'PointNet2SASSG', 'PointNet2SAMSG',
     'MultiBackbone', 'DLANet', 'MinkResNet', 'Asymm3DSpconv',
-    'MinkUNetBackbone', 'SPVCNNBackbone', 'MinkUNetBackboneV2'
+    'MinkUNetBackbone', 'SPVCNNBackbone', 'MinkUNetBackboneV2', 'DLABackbone'
 ]

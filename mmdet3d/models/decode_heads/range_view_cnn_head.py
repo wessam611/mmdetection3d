@@ -162,7 +162,7 @@ class RangeViewCnnHead(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-    def forward(self, x):
+    def forward(self, x, *_, **__):
         x_e1 = self.en_c1(x)
         xm_e1, inds1 = self.max_pool(x_e1)
         xm_e1 = self.dropoutF(xm_e1)
