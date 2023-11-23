@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/models/pointpillars_rf_hv_secfpn_waymo.py',
+    '../_base_/models/pointpillars_rf_dla_hv_secfpn_waymo.py',
     '../_base_/datasets/waymo-rf-iter-3d-3class.py',
     '../_base_/schedules/schedule-2x.py',
     '../_base_/default_runtime.py',

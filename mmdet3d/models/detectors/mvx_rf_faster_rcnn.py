@@ -95,11 +95,6 @@ class MVXRFFasterRCNN(MVXFasterRCNN):
         range_canvas = torch.zeros((*s[:-3], s[-3] * s[-2], s[-1]),
                                    device=range_feats[0].device)
         l2_dist = torch.norm(voxel_centers[:, :2], 2, dim=1)
-        # print(l2_dist.shape)
-        # print(voxel_coors.shape)
-        # print(torch.min(voxel_coors, 0))
-        # print(torch.max(voxel_coors, 0))
-        # raise 'lll'
 
         for i, v in enumerate(range_feats):
             range_feats[i] = torch.flatten(v, -2, -1)

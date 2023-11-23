@@ -6,11 +6,6 @@ from torch import nn
 from mmdet3d.registry import MODELS
 
 
-def printFunc(*args, **kwargs):
-    # print(*args, **kwargs)
-    return
-
-
 class DLARBasicBlock(nn.Module):
 
     def __init__(self, name, conv, inC, outC, stride, dilate, proj):
@@ -34,23 +29,15 @@ class DLARBasicBlock(nn.Module):
             self.bn3 = nn.BatchNorm2d(outC)
 
     def forward(self, data, coo=None):
-        printFunc('-' * 8, 'start', '-' * 8)
-        printFunc(self.name)
-        printFunc('in, out: ', self.inC, self.outC)
-        printFunc('data: ', data.shape)
         if isinstance(self.conv1, nn.Conv2d):
             c1 = self.relu(self.bn1(self.conv1(data)))
         else:
             c1 = self.conv1(data, coo)
-        printFunc('c1: ', c1.shape)
         c2 = self.bn2(self.conv2(c1))
-        printFunc('c2: ', c2.shape)
-        printFunc('proj: ', self.proj)
         if self.proj:
             shortcut = self.bn3(self.conv3(data))
         else:
             shortcut = data
-        printFunc('shortcut: ', shortcut.shape)
         eltwise = c2 + shortcut
         out = self.relu(eltwise)
         return out
@@ -94,12 +81,7 @@ class AggStage(nn.Module):
                                   stride, dilate)
 
     def forward(self, data_const, data_upsample):
-        printFunc('-' * 8, 'start', '-' * 8)
-        printFunc(self.stage)
-        printFunc('data_const: ', data_const.shape)
-        printFunc('data_upsample_v1: ', data_upsample.shape)
         data_upsample = self.relu(self.bn1(self.deconv1(data_upsample)))
-        printFunc('data_upsample_v2: ', data_upsample.shape)
         eltwise = data_const + data_upsample
         out = self.res_stage(eltwise)
         return out
