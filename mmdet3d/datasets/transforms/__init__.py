@@ -4,19 +4,21 @@ from .formating import Pack3DDetInputs
 from .loading import (LidarDet3DInferencerLoader, LoadAnnotations3D,
                       LoadImageFromFileMono3D, LoadMultiViewImageFromFiles,
                       LoadPointsFromDict, LoadPointsFromFile,
-                      LoadPointsFromMultiSweeps, MonoDet3DInferencerLoader,
+                      LoadPointsFromMultiSweeps, LoadWaymoFrame,
+                      MonoDet3DInferencerLoader,
                       MultiModalityDet3DInferencerLoader, NormalizePointsColor,
-                      PointSegClassMapping, LoadWaymoFrame)
+                      PointSegClassMapping)
 from .test_time_aug import MultiScaleFlipAug3D
 # yapf: disable
 from .transforms_3d import (AffineResize, BackgroundPointsFilter,
-                            GlobalAlignment, GlobalRotScaleTrans,
-                            IndoorPatchPointSample, IndoorPointSample,
-                            LaserMix, MultiViewWrapper, ObjectNameFilter,
-                            ObjectNoise, ObjectRangeFilter, ObjectSample,
-                            PhotoMetricDistortion3D, PointSample, PointShuffle,
-                            PointsRangeFilter, PolarMix, RandomDropPointsColor,
-                            RandomFlip3D, RandomJitterPoints, RandomResize3D,
+                            CopyPasteRangePoints, GlobalAlignment,
+                            GlobalRotScaleTrans, IndoorPatchPointSample,
+                            IndoorPointSample, LaserMix, MultiViewWrapper,
+                            ObjectNameFilter, ObjectNoise, ObjectRangeFilter,
+                            ObjectSample, PhotoMetricDistortion3D, PointSample,
+                            PointShuffle, PointsRangeFilter, PolarMix,
+                            RandomDropPointsColor, RandomFlip3D,
+                            RandomJitterPoints, RandomResize3D,
                             RandomShiftScale, Resize3D, VoxelBasedPointSampler)
 
 __all__ = [
@@ -32,5 +34,6 @@ __all__ = [
     'RandomShiftScale', 'LoadPointsFromDict', 'Resize3D', 'RandomResize3D',
     'MultiViewWrapper', 'PhotoMetricDistortion3D', 'MonoDet3DInferencerLoader',
     'LidarDet3DInferencerLoader', 'PolarMix', 'LaserMix',
-    'MultiModalityDet3DInferencerLoader', 'LoadWaymoFrame'
+    'MultiModalityDet3DInferencerLoader', 'LoadWaymoFrame',
+    'CopyPasteRangePoints'
 ]

@@ -1385,6 +1385,7 @@ class LoadWaymoFrame(BaseTransform):
                  nlz_points: bool = False,
                  range_image: bool = False,
                  range_index: bool = False,
+                 reverse_index: bool = False,
                  filter_nlz_points: bool = True,
                  target_classes: List = ['Car', 'Pedestrian', 'Cyclist'],
                  with_bbox_3d: bool = True,
@@ -1418,6 +1419,7 @@ class LoadWaymoFrame(BaseTransform):
         self.used_lasers = used_lasers
         self.range_image = range_image
         self.range_index = range_index
+        self.reverse_index = reverse_index
         self.nlz_points = nlz_points
         self.filter_nlz_points = filter_nlz_points
         self.pkl_files_path = pkl_files_path
@@ -1432,9 +1434,9 @@ class LoadWaymoFrame(BaseTransform):
         """"""
         gt_bboxes_3d.append([
             frame_label.box.center_x, frame_label.box.center_y,
-            frame_label.box.center_z - frame_label.box.height / 2,
-            frame_label.box.length, frame_label.box.width,
-            frame_label.box.height, frame_label.box.heading
+            frame_label.box.center_z, frame_label.box.length,
+            frame_label.box.width, frame_label.box.height,
+            frame_label.box.heading
         ])
         return gt_bboxes_3d
 
@@ -1552,6 +1554,17 @@ class LoadWaymoFrame(BaseTransform):
             if self.range_index:
                 results['range_index'] = results['range_index'][
                     nlz_points != 1.0]
+        if self.reverse_index:
+            assert self.range_image
+            if self.range_index:
+                range_index = results['range_index']
+            elif self.filter_nlz_points:
+                range_index = results['range_index'][nlz_points != 1.0]
+            H, W, _ = results['range_image'].shape
+            layers = 2 if self.use_ri2 else 1
+            reverse_inds = np.zeros(H * W * layers, np.int32) - 1
+            reverse_inds[range_index] = np.arange(len(range_index))
+            results['reverse_inds'] = reverse_inds.reshape((H * 2, W))
         return results
 
     def transform(self, pkl_path) -> dict:
@@ -1571,7 +1584,7 @@ class LoadWaymoFrame(BaseTransform):
         frame.ParseFromString(bytearray(pkl_dict['frame']))
         points = pkl_dict['points']
         nlz_points = pkl_dict['nlz_points']
-        range_index = pkl_dict['range_index']
+        range_index = pkl_dict['range_index'].astype(np.int32)
         results = self._load_frame_inputs(results, frame, points, nlz_points,
                                           range_index)
         results = self._load_labels(results, frame)

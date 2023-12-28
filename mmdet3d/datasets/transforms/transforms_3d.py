@@ -17,8 +17,10 @@ from mmdet3d.registry import TRANSFORMS
 from mmdet3d.structures import (CameraInstance3DBoxes, DepthInstance3DBoxes,
                                 LiDARInstance3DBoxes)
 from mmdet3d.structures.ops import box_np_ops
-from mmdet3d.structures.points import BasePoints
+from mmdet3d.structures.points import BasePoints, LiDARPoints
 from .data_augment_utils import noise_per_object_v3_
+from .range_utils import (flip_range_image, index_flatten, index_unflatten,
+                          rotate_range_image)
 
 
 @TRANSFORMS.register_module()
@@ -180,6 +182,12 @@ class RandomFlip3D(RandomFlip):
             # see more details and examples at
             # https://github.com/open-mmlab/mmdetection3d/pull/744
             input_dict['cam2img'][0][2] = w - input_dict['cam2img'][0][2]
+
+        if 'range_image' in input_dict:
+            range_index = input_dict.get('range_index', None)
+            input_dict['range_image'], input_dict[
+                'range_index'] = flip_range_image(input_dict['range_image'],
+                                                  range_index, direction)
 
     def _flip_on_direction(self, results: dict) -> None:
         """Function to flip images, bounding boxes, semantic segmentation map
@@ -628,6 +636,395 @@ class GlobalAlignment(BaseTransform):
 
 
 @TRANSFORMS.register_module()
+class CopyPasteRangePoints(BaseTransform):
+    """Copies and pastes objects in the point cloud. Should be applied in an
+    early stage of the augmentation pipeline. It assumes that points are not
+    shuffled and have the same order as the range image.
+
+    Args:
+        cp_probablity: probablity of an object to be copy pasted
+
+    Raises:
+        NotImplementedError: _description_
+
+    Returns:
+        _type_: _description_
+    """
+
+    def __init__(self, cp_prob: float = [0.3, 0.6, 0.6]):
+        super(CopyPasteRangePoints, self).__init__()
+        self.cp_prob = cp_prob
+
+    def get_bbox_mask(self, points_cp, points_mask, box):
+        pp = points_cp[points_mask]
+        pp[:, :3] = pp[:, :3] - box[:3]
+        R = torch.eye(3)
+        R[0, 0] = np.cos(-box[-1])
+        R[0, 1] = -np.sin(-box[-1])
+        R[1, 0] = np.sin(-box[-1])
+        R[1, 1] = np.cos(-box[-1])
+        pp[:, :3] = pp[:, :3] @ R
+        e = 1e-2
+        p1 = pp[:, 0] >= -box[3] / 2 - e
+        p2 = pp[:, 0] <= box[3] / 2 + e
+        p3 = pp[:, 1] >= -box[4] / 2 - e
+        p4 = pp[:, 1] <= box[4] / 2 + e
+        p5 = pp[:, 2] >= 0
+        p6 = pp[:, 2] <= box[5] + e
+        pp_mask = torch.logical_and(
+            p1,
+            torch.logical_and(
+                p2,
+                torch.logical_and(
+                    p3, torch.logical_and(p4, torch.logical_and(p5, p6)))))
+        points_mask[points_mask.clone()] = pp_mask
+        return points_mask
+
+    def get_axis_aligned_box_mask(self, points, box):
+        x, y, z, xs, ys, zs, yaw = box
+        yaw_ = (-1) * yaw if yaw < 0 else yaw
+        yaw_ = yaw_ - torch.pi if yaw_ >= torch.pi else yaw_
+        yaw_ = torch.pi - yaw_ if yaw_ >= torch.pi / 2 else yaw_
+        l_glob = xs * torch.cos(yaw_) + ys * torch.sin(yaw_)
+        w_glob = xs * torch.sin(yaw_) + ys * torch.cos(yaw_)
+        p1 = points[:, 0] >= (x - l_glob / 2)
+        p2 = points[:, 0] <= (x + l_glob / 2)
+        p3 = points[:, 1] >= (y - w_glob / 2)
+        p4 = points[:, 1] <= (y + w_glob / 2)
+        points_mask = torch.logical_and(
+            torch.logical_and(p1, p2), torch.logical_and(p3, p4))
+        return points_mask
+
+    def is_ground(self, results, mask_2d):
+        eps = 0.1  # considering <10cm per meter height change as ground
+        eps_ = 1e-8
+        H, W, C = results['range_image'].shape
+        no_return = results['reverse_inds'][mask_2d[:, 0], mask_2d[:, 1]] == -1
+        # y-, x-, y+, x+
+        ym = mask_2d + [0, -1]
+        yp = mask_2d + [0, 1]
+        xm = mask_2d + [-1, 0]
+        xp = mask_2d + [1, 0]
+        inv = np.logical_or(
+            np.logical_or(ym[:, 1] < 0, yp[:, 1] >= W),
+            np.logical_or(xm[:, 0] < 0, xp[:, 0] >= H * (C // 3)))
+        ym[inv] = 0
+        yp[inv] = 0
+        xm[inv] = 0
+        xp[inv] = 0
+        pz = results['points'].tensor[results['reverse_inds'][mask_2d[:, 0],
+                                                              mask_2d[:,
+                                                                      1]]][:,
+                                                                           2]
+        p_ym = results['points'].tensor[results['reverse_inds'][ym[:, 0],
+                                                                ym[:, 1]]]
+        p_yp = results['points'].tensor[results['reverse_inds'][yp[:, 0],
+                                                                yp[:, 1]]]
+        p_xm = results['points'].tensor[results['reverse_inds'][xm[:, 0],
+                                                                xm[:, 1]]]
+        p_xp = results['points'].tensor[results['reverse_inds'][xp[:, 0],
+                                                                xp[:, 1]]]
+        # ZΔ in dir y & x.
+        yzd = np.absolute(p_ym[:, 2] - p_ym[:, 2]) / (
+            np.linalg.norm((p_yp[:, :2] - p_ym[:, :2]), ord=2, axis=1) + eps_)
+        xzd = np.absolute(p_xm[:, 2] - p_xm[:, 2]) / (
+            np.linalg.norm((p_xp[:, :2] - p_xm[:, :2]), ord=2, axis=1) + eps_)
+        is_ground = np.logical_and(
+            np.logical_and(yzd <= eps, xzd <= eps), pz <= 1)
+        return np.logical_and(is_ground,
+                              np.logical_or(no_return, inv) == False)
+
+    def get_mask_outer_borders(self, results, range_mask_indices):
+        H, W, C = results['range_image'].shape
+        p_count = range_mask_indices.shape[0]
+        morph = np.zeros((p_count * 8, 2), np.int32)
+        offset = 0
+        #TODO: could be optimized
+        for i in range(-2, 3, 2):
+            for j in range(-2, 3, 2):
+                if i == j == 0:
+                    continue
+                morph[offset:offset + p_count] = range_mask_indices + [i, j]
+                offset += p_count
+        morph = np.unique(morph, axis=0)
+        invalid = np.logical_or(
+            np.logical_or(morph[:, 0] < 0, morph[:, 0] >= H * 2),
+            np.logical_or(morph[:, 1] < 0, morph[:, 1] >= W))
+        morph = morph[invalid == False]
+        is_ground = self.is_ground(results, morph)
+        morph = morph[is_ground == False]
+        rmi_flat = index_flatten(range_mask_indices, (H, W, C))
+        morph_flat = index_flatten(morph, (H, W, C))
+        is_in_mask = np.isin(morph_flat, rmi_flat)
+        morph = morph[is_in_mask == False]
+        no_return = results['reverse_inds'][morph[:, 0], morph[:, 1]] == -1
+        return morph, no_return
+
+    def is_occluded(self,
+                    results,
+                    range_mask_indices,
+                    dist_thr=0.3,
+                    count_ratio_thr=0.05,
+                    min_perc=0.8):
+        range_image = results['range_image']
+        H, W, C = range_image.shape
+        borders, no_return = self.get_mask_outer_borders(
+            results, range_mask_indices)
+        rm_r0 = range_mask_indices[range_mask_indices[:, 0] < H]
+        rm_r1 = range_mask_indices[range_mask_indices[:, 0] >= H] - H
+        br_r0 = borders[borders[:, 0] < H]
+        br_r1 = borders[borders[:, 0] >= H] - H
+        obj_range = np.concatenate([
+            range_image[rm_r0[:, 0], rm_r0[:, 1], 0],
+            range_image[rm_r1[:, 0], rm_r1[:, 1], 3]
+        ])
+        borders_range = np.concatenate([
+            range_image[br_r0[:, 0], br_r0[:, 1], 0],
+            range_image[br_r1[:, 0], br_r1[:, 1], 3]
+        ])
+        borders_range = borders_range[no_return == False]
+        obj_min = np.sort(obj_range)[int(len(obj_range) * min_perc)]
+        return (np.sum(borders_range < obj_min - dist_thr) >=
+                len(borders_range) * count_ratio_thr, borders, no_return)
+
+    def dilate_no_return_pts(self,
+                             results,
+                             rm_indices,
+                             borders,
+                             nr_borders,
+                             max_iter=10):
+        H, _, _ = results['range_image'].shape
+        nr_borders = borders[nr_borders]
+        rm_indices = rm_indices[rm_indices[:, 0] < H]
+        if rm_indices.shape[0] == 0:
+            return None
+        x_min, y_min = np.min(rm_indices, axis=0)
+        x_max, y_max = np.max(rm_indices, axis=0)
+        nr_borders = nr_borders[np.logical_and(
+            np.logical_and(nr_borders[:, 0] >= x_min,
+                           nr_borders[:, 0] <= x_max),
+            np.logical_and(nr_borders[:, 1] >= y_min,
+                           nr_borders[:, 1] <= y_max))]
+        if nr_borders.shape[0] == 0:
+            return None
+        nr_crop = torch.zeros((1, x_max - x_min + 1, y_max - y_min + 1, 1))
+        nr_crop[0, nr_borders[:, 0] - x_min, nr_borders[:, 1] - y_min] = 1
+        range_crop = torch.from_numpy(results['range_image'][x_min:x_max + 1,
+                                                             y_min:y_max + 1,
+                                                             0])
+        for _ in range(max_iter):
+            cur = torch.max_pool2d(nr_crop, 3, 1, 1)
+            cur[0, range_crop != -1] = 0
+            if torch.all(cur == nr_crop):
+                break
+            nr_crop = cur
+        nr_crop = nr_crop[0, ..., 0].numpy()
+        nr_crop = np.stack(nr_crop.nonzero(), 1)
+        nr_crop += [[x_min, y_min]]
+        return nr_crop
+
+    def merge_to_range(self, results, range_mask_indices, range_mask_rotated,
+                       bord, zerss):
+        H, W, C = results['range_image'].shape
+        mask_r0 = range_mask_indices[:, 0] < H
+        rmr0r = range_mask_rotated[mask_r0]
+        rmr0 = range_mask_indices[mask_r0]
+        zerss[rmr0[:, 0], rmr0[:, 1]] = 1
+        bb = np.zeros((64, 2650))
+        bb[bord[bord[:, 0] < 64, 0], bord[bord[:, 0] < 64, 1]] = 1
+
+        source_vals = results['range_image'][rmr0[:, 0], rmr0[:, 1], :3]
+        no_ret_mask = source_vals[..., 0] == -1
+        source_avg = np.average(source_vals[no_ret_mask == False, 0])
+        target_vals = results['range_image'][rmr0r[:, 0], rmr0r[:, 1], :3]
+        no_ret_maskT = target_vals[..., 0] == -1
+        target_avg = np.average(target_vals[no_ret_maskT == False, 0])
+        close_to_avg = np.logical_and(target_vals <= source_avg + 2,
+                                      target_vals >= source_avg - 2)
+        if np.sum(close_to_avg) / (target_vals.shape[0] + 1e-3) >= 0.05:
+            return False
+        twm = np.logical_or(  # to write mask
+            np.logical_and(no_ret_mask, target_vals[:, 0] > source_avg),
+            np.logical_and(no_ret_mask == False,
+                           target_vals[:, 0] > source_vals[:, 0]))
+        twm = np.logical_or(
+            twm, np.logical_and(no_ret_maskT, source_vals[:, 0] < target_avg))
+        if np.sum(twm) / (target_vals.shape[0] + 1e-3) <= 0.7:
+            return False
+        pts_2_remove = results['reverse_inds'][rmr0r[twm, 0], rmr0r[twm, 1]]
+        pts_2_rotate = results['reverse_inds'][rmr0[twm, 0], rmr0[twm, 1]]
+        results['range_image'][rmr0r[twm, 0], rmr0r[
+            twm, 1], :3] = results['range_image'][rmr0[twm, 0], rmr0[twm,
+                                                                     1], :3]
+        range_index_add = rmr0r[twm, 0] * W + rmr0r[twm, 1]
+
+        if C > 3:
+            mask_r1 = range_mask_indices[:, 0] >= H
+            rmr1r = range_mask_rotated[mask_r1]
+            rmr1 = range_mask_indices[mask_r1]
+            range_index_add = np.concatenate(
+                [range_index_add, rmr1r[:, 0] * W + rmr1r[:, 1]])
+            pts_2_remove = np.concatenate([
+                pts_2_remove, results['reverse_inds'][rmr1r[:, 0], rmr1r[:, 1]]
+            ])
+            pts_2_rotate = np.concatenate([
+                pts_2_rotate, results['reverse_inds'][rmr1[:, 0], rmr1[:, 1]]
+            ])
+            rmr1r[:, 0] -= H
+            rmr1[:, 0] -= H
+            results['range_image'][rmr1r[:, 0], rmr1r[:, 1],
+                                   3:] = results['range_image'][rmr1[:, 0],
+                                                                rmr1[:, 1],
+                                                                3:].copy()
+        return pts_2_remove, pts_2_rotate, range_index_add
+
+    def rot_paste_from_mask(self, results, points_mask: np.array, zerss):
+        rot_r = random.random() * 1.5 * torch.pi + 0.25 * torch.pi
+        rot_d = rot_r * 180 / torch.pi
+        H, _, C = results['range_image'].shape
+
+        range_mask_indices = results['range_index'][points_mask].astype(
+            np.int32)
+        range_mask_indices = index_unflatten(range_mask_indices,
+                                             results['range_image'].shape)
+        if range_mask_indices.shape[0] <= 10:
+            return False
+        isoc, bord, nr_bord = self.is_occluded(results, range_mask_indices)
+        if nr_bord.shape[0] != 0:
+            nr_bord = self.dilate_no_return_pts(results, range_mask_indices,
+                                                bord, nr_bord)
+            if nr_bord is not None:
+                range_mask_indices = np.concatenate(
+                    [range_mask_indices, nr_bord], axis=0)
+        if isoc:
+            return False
+        _, range_mask_rotated = rotate_range_image(results['range_image'],
+                                                   range_mask_indices.copy(),
+                                                   rot_d, True)
+        merged = self.merge_to_range(results, range_mask_indices,
+                                     range_mask_rotated, bord, zerss)
+        if merged == False:
+            return merged
+        return merged, rot_r
+
+    def rotate_points_and_append(self, results, pts_2_rotate, rot_r):
+        points = results['points'][pts_2_rotate].clone()
+        points.rotate(rot_r)
+        results['points'] = LiDARPoints.cat([results['points'], points])
+
+    def transform(self, results):
+        points = torch.clone(results['points'].tensor)
+
+        pts_2_remove = []
+        boxes_2_append = []
+        range_index_2_add = []
+        sss = 0
+        for i, (box, lbl) in enumerate(
+                zip(results['gt_bboxes_3d'], results['gt_labels_3d'])):
+            pn = random.random()
+            if pn > self.cp_prob[lbl]:
+                continue
+            axis_mask = self.get_axis_aligned_box_mask(points, box)
+            bbox_mask = self.get_bbox_mask(points, axis_mask, box)
+            merged = self.rot_paste_from_mask(results, bbox_mask,
+                                              np.zeros((64, 2650)))
+            if merged == False:
+                continue
+            sss += 1
+            (pts_2_rmv, pts_2_rotate, range_index_add), rot_r = merged
+            range_index_2_add = np.concatenate(
+                [range_index_2_add, range_index_add])
+            pts_2_remove = np.concatenate([pts_2_remove, pts_2_rmv])
+            self.rotate_points_and_append(results, pts_2_rotate, rot_r)
+            bbox = LiDARInstance3DBoxes(np.expand_dims(box, 0))
+            bbox.rotate(rot_r)
+            boxes_2_append.append((bbox, lbl))
+        boxes_2_remove = []
+        for i, (box, lbl) in enumerate(
+                zip(results['gt_bboxes_3d'], results['gt_labels_3d'])):
+            axis_mask = self.get_axis_aligned_box_mask(points, box)
+            bbox_mask = self.get_bbox_mask(points, axis_mask, box)
+            if torch.sum(bbox_mask) >= 10:
+                boxes_2_remove.append(i)
+        results['gt_bboxes_3d'].tensor = results['gt_bboxes_3d'].tensor[
+            boxes_2_remove]
+        results['gt_labels_3d'] = results['gt_labels_3d'][boxes_2_remove]
+        for box, lbl in boxes_2_append:
+            results['gt_bboxes_3d'] = LiDARInstance3DBoxes.cat(
+                [results['gt_bboxes_3d'], box])
+            results['gt_labels_3d'] = np.concatenate(
+                [results['gt_labels_3d'], [lbl]], 0)
+        pts_2_remove = np.asarray(pts_2_remove, np.int32)
+        results['points'].tensor = np.delete(results['points'].tensor,
+                                             pts_2_remove, 0)
+        results['range_index'] = np.delete(results['range_index'],
+                                           pts_2_remove)
+        results['range_index'] = np.concatenate(
+            [results['range_index'], range_index_2_add])
+        return results
+
+
+def create_rotated_box_obj(center, dimensions, yaw_radians, verts_counts):
+    import math
+
+    # Convert yaw angle from degrees to radians
+    # yaw_radians = math.radians(yaw_degrees)
+    # Calculate half dimensions
+    half_width, half_height, half_depth = dimensions[0] / 2, dimensions[
+        1] / 2, dimensions[2] / 2
+    center[2] += half_depth
+    # Define the vertices of the box
+    vertices = [
+        (-half_width, -half_height, -half_depth),
+        (-half_width, -half_height, half_depth),
+        (-half_width, half_height, -half_depth),
+        (-half_width, half_height, half_depth),
+        (half_width, -half_height, -half_depth),
+        (half_width, -half_height, half_depth),
+        (half_width, half_height, -half_depth),
+        (half_width, half_height, half_depth),
+    ]
+
+    # Apply rotation to the vertices
+    rotated_vertices = []
+    for vertex in vertices:
+        x_rotated = vertex[0] * math.cos(yaw_radians) - vertex[1] * math.sin(
+            yaw_radians)
+        y_rotated = vertex[0] * math.sin(yaw_radians) + vertex[1] * math.cos(
+            yaw_radians)
+        z_rotated = vertex[2]
+
+        x_final = x_rotated + center[0]
+        y_final = y_rotated + center[1]
+        z_final = z_rotated + center[2]
+
+        rotated_vertices.append((x_final, y_final, z_final))
+
+    # Define the faces of the box
+    faces = [
+        (1, 5, 7, 3),
+        (4, 0, 2, 6),
+        (0, 1, 3, 2),
+        (5, 4, 6, 7),
+        (0, 4, 5, 1),
+        (2, 3, 7, 6),
+    ]
+
+    # Create the .obj string
+    obj_str = 'g Box\n'
+    center[2] -= half_depth
+    # Add vertices
+    for vertex in rotated_vertices:
+        obj_str += f'v {vertex[0]} {vertex[1]} {vertex[2]}\n'
+
+    # Add faces
+    # for face in faces:
+    #     obj_str += f"f {face[0]+verts_counts+1} {face[1]+verts_counts+1} {face[2]+verts_counts+1} {face[3]+verts_counts+1}\n"
+
+    return obj_str, len(rotated_vertices)
+
+
+@TRANSFORMS.register_module()
 class GlobalRotScaleTrans(BaseTransform):
     """Apply global rotation, scaling and translation to a 3D scene.
 
@@ -731,6 +1128,13 @@ class GlobalRotScaleTrans(BaseTransform):
         else:
             # if no bbox in input_dict, only rotate points
             rot_mat_T = input_dict['points'].rotate(noise_rotation)
+
+        if 'range_image' in input_dict:
+            range_index = input_dict.get('range_index', None)
+            input_dict['range_image'], input_dict[
+                'range_index'] = rotate_range_image(input_dict['range_image'],
+                                                    range_index,
+                                                    noise_rotation)
 
         input_dict['pcd_rotation'] = rot_mat_T
         input_dict['pcd_rotation_angle'] = noise_rotation
