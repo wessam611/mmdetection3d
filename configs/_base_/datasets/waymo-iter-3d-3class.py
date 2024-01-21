@@ -48,6 +48,10 @@ train_pipeline = [
         flip_ratio_bev_horizontal=0.5,
         flip_ratio_bev_vertical=0.5),
     dict(
+        type='RandomObjectScaling',
+        scale_p=0.7,
+        scale_range=[0.9, 1.1]),
+    dict(
         type='GlobalRotScaleTrans',
         rot_range=[-0.78539816, 0.78539816],
         scale_ratio_range=[0.95, 1.05]),
@@ -58,30 +62,7 @@ train_pipeline = [
         type='Pack3DDetInputs',
         keys=['points', 'gt_bboxes_3d', 'gt_labels_3d'])
 ]
-test_pipeline = [
-    dict(
-        type='LoadWaymoFrame',
-        norm_intensity=True,
-        norm_elongation=True,
-        pkl_files_path=
-        'data/waymo/waymo_format/records_shuffled/testing/pre_data/'),
-    dict(
-        type='MultiScaleFlipAug3D',
-        img_scale=(1333, 800),
-        pts_scale_ratio=1,
-        flip=False,
-        transforms=[
-            dict(
-                type='GlobalRotScaleTrans',
-                rot_range=[0, 0],
-                scale_ratio_range=[1., 1.],
-                translation_std=[0, 0, 0]),
-            dict(type='RandomFlip3D'),
-            dict(
-                type='PointsRangeFilter', point_cloud_range=point_cloud_range)
-        ]),
-    dict(type='Pack3DDetInputs', keys=['points'])
-]
+
 # construct a pipeline for data and gt loading in show function
 # please keep its loading function consistent with test_pipeline (e.g. client)
 eval_pipeline = [
@@ -118,10 +99,11 @@ train_dataloader = dict(
         box_type_3d='LiDAR',
         backend_args=backend_args))
 val_dataloader = dict(
-    batch_size=8,
-    num_workers=2,
+    batch_size=4,
+    num_workers=3,
     prefetch_factor=2,
-    persistent_workers=True,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    persistent_workers=False,
     dataset=dict(
         type=dataset_type,
         repeat=False,
@@ -129,27 +111,26 @@ val_dataloader = dict(
         modality=input_modality,
         test_mode=True,
         mode='val',
-        val_divs=4,
-        num_parallel_reads=1,
+        val_divs=1,
         metainfo=metainfo,
         box_type_3d='LiDAR',
-        backend_args=backend_args))
+        backend_args=backend_args,
+        skips_n=1))
 
 test_dataloader = dict(
-    batch_size=8,
-    num_workers=4,
-    persistent_workers=True,
+    batch_size=1,
+    num_workers=0,
     prefetch_factor=1,
     drop_last=False,
     dataset=dict(
         type=dataset_type,
         pipeline=[
             dict(
-                type='LoadWaymoFrame',
+                type='LoadPointsFromDict',
                 norm_intensity=True,
                 norm_elongation=True,
-                pkl_files_path=
-                'data/waymo/waymo_format/records_shuffled/testing/pre_data/'),
+                coord_type='LIDAR',
+                use_dim=[0, 1, 2, 3, 4],),
             dict(
                 type='Pack3DDetInputs',
                 keys=[
@@ -167,7 +148,8 @@ test_dataloader = dict(
         mode='test',
         metainfo=metainfo,
         box_type_3d='LiDAR',
-        backend_args=backend_args))
+        backend_args=backend_args,
+        skips_n=1))
 
 val_evaluator = dict(
     type='IterWaymoMetric',

@@ -23,7 +23,7 @@ from .transforms import (AffineResize, BackgroundPointsFilter, GlobalAlignment,
                          RandomFlip3D, RandomJitterPoints, RandomResize3D,
                          RandomShiftScale, Resize3D, VoxelBasedPointSampler, LoadWaymoFrame)
 from .utils import get_loading_pipeline
-# from .waymo_dataset import WaymoDataset
+from .waymo_dataset import WaymoDataset
 from .iter_waymo_dataset import IterWaymoDataset
 
 __all__ = [
@@ -39,5 +39,5 @@ __all__ = [
     'VoxelBasedPointSampler', 'get_loading_pipeline', 'RandomDropPointsColor',
     'RandomJitterPoints', 'ObjectNameFilter', 'AffineResize',
     'RandomShiftScale', 'LoadPointsFromDict', 'Resize3D', 'RandomResize3D',
-    'LoadWaymoFrame'
+    'LoadWaymoFrame', 'WaymoDataset'
 ]

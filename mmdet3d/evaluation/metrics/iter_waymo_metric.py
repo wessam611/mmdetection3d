@@ -22,14 +22,16 @@ from mmdet3d.structures import (Box3DMode, CameraInstance3DBoxes,
                                 points_cam2img, xywhr2xyxyr)
 from .waymo_metric import WaymoMetric
 
+import time
+
 
 @METRICS.register_module()
 class IterWaymoMetric(WaymoMetric):
     """Waymo evaluation metric for iterable style dataset."""
-    num_cams = 5
 
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(prefix='Waymo metric', *args, **kwargs)
+        pklfile_prefix = f'submiss/{time.strftime("%Y%m%d-%H%M%S")}'
+        super().__init__(prefix='Waymo metric', pklfile_prefix=pklfile_prefix, *args, **kwargs)
         self.k2w_cls_map = {
             'Car': label_pb2.Label.TYPE_VEHICLE,
             'Pedestrian': label_pb2.Label.TYPE_PEDESTRIAN,
@@ -191,8 +193,8 @@ class IterWaymoMetric(WaymoMetric):
             x = box[0].item()
             y = box[1].item()
             z = box[2].item()
-            width = box[3].item()
-            length = box[4].item()
+            length = box[3].item()
+            width = box[4].item()
             height = box[5].item()
             rotation_y = box[6].item()
             if 'scores_3d' in instances:

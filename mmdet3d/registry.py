@@ -16,6 +16,7 @@ from mmengine.registry import LOOPS as MMENGINE_LOOPS
 from mmengine.registry import METRICS as MMENGINE_METRICS
 from mmengine.registry import MODEL_WRAPPERS as MMENGINE_MODEL_WRAPPERS
 from mmengine.registry import MODELS as MMENGINE_MODELS
+from mmengine.registry import FUNCTIONS as MMENGINE_FUNCTIONS
 from mmengine.registry import \
     OPTIM_WRAPPER_CONSTRUCTORS as MMENGINE_OPTIM_WRAPPER_CONSTRUCTORS
 from mmengine.registry import OPTIM_WRAPPERS as MMENGINE_OPTIM_WRAPPERS
@@ -37,7 +38,7 @@ RUNNERS = Registry(
     # TODO: update the location when mmdet3d has its own runner
     'runner',
     parent=MMENGINE_RUNNERS,
-    locations=['mmdet3d.engine'])
+    locations=['mmdet3d.runners'])
 # manage runner constructors that define how to initialize runners
 RUNNER_CONSTRUCTORS = Registry(
     'runner constructor',
@@ -49,7 +50,7 @@ LOOPS = Registry(
     # TODO: update the location when mmdet3d has its own loop
     'loop',
     parent=MMENGINE_LOOPS,
-    locations=['mmdet3d.engine'])
+    locations=['mmdet3d.engine', 'mmdet3d.loops'])
 # manage all kinds of hooks like `CheckpointHook`
 HOOKS = Registry(
     'hook', parent=MMENGINE_HOOKS, locations=['mmdet3d.engine.hooks'])
@@ -139,3 +140,8 @@ INFERENCERS = Registry(
     'inferencer',
     parent=MMENGINE_INFERENCERS,
     locations=['mmdet3d.api.inferencers'])
+# Functions
+FUNCTIONS = Registry(
+    'function',
+    parent=MMENGINE_FUNCTIONS,
+    locations=['mmdet3d.functions'])

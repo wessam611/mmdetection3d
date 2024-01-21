@@ -3,11 +3,48 @@ import time
 from typing import Dict, List, Optional, Sequence
 
 import torch
+import torch.nn.functional as F
+from torch import nn
 from torch import Tensor
 
 from mmdet3d.registry import MODELS
 from .mvx_faster_rcnn import MVXFasterRCNN
 
+class DropBlock(nn.Module):
+    """
+    DropBlock layer. Drops patches from an image based on
+    block_size and p.
+    Disregarded experiment.
+    """
+    def __init__(self, block_size: int, p: float = 0.5):
+        super().__init__()
+        self.block_size = block_size
+        self.p = p
+
+    def calculate_gamma(self, x: Tensor) -> float:
+        """Compute gamma, eq (1) in the paper
+        Args:
+            x (Tensor): Input tensor
+        Returns:
+            Tensor: gamma
+        """
+
+        invalid = (1 - self.p) / (self.block_size**2)
+        valid = (x.shape[-1]**2) / ((x.shape[-1] - self.block_size + 1)**2)
+        return invalid * valid
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.training:
+            gamma = self.calculate_gamma(x)
+            mask = torch.bernoulli(torch.ones_like(x) * gamma)
+            mask_block = 1 - F.max_pool2d(
+                mask,
+                kernel_size=(self.block_size, self.block_size),
+                stride=(1, 1),
+                padding=(self.block_size // 2, self.block_size // 2),
+            )
+            x = mask_block * x * (mask_block.numel() / mask_block.sum())
+        return x
 
 @MODELS.register_module()
 class MVXRFFasterRCNN(MVXFasterRCNN):
@@ -16,7 +53,7 @@ class MVXRFFasterRCNN(MVXFasterRCNN):
     Implementing range view fusion
     """
 
-    def __init__(self, rf_net=None, dla_to_dist=None, **kwargs):
+    def __init__(self, rf_net=None, dla_to_dist=None, rv_dropout_p=0.2, bev_dropout_p=0.4, **kwargs):
         """_summary_
 
         Args:
@@ -32,6 +69,8 @@ class MVXRFFasterRCNN(MVXFasterRCNN):
             self.dla_to_dist = dla_to_dist
         if rf_net:
             self.rf_net = MODELS.build(rf_net)
+        self.rv_dropout = nn.Dropout2d(rv_dropout_p)
+        self.bev_dropout = nn.Dropout2d(bev_dropout_p)
 
     def extract_feat(self, batch_inputs_dict: dict,
                      batch_input_metas: List[dict]) -> tuple:
@@ -122,6 +161,8 @@ class MVXRFFasterRCNN(MVXFasterRCNN):
         range_canvas, _ = torch.max(range_canvas, dim=-1)
         range_canvas = range_canvas.reshape(canvas_feats_dims)
         range_canvas[range_canvas == -torch.inf] = 0
+        range_canvas = self.rv_dropout(range_canvas)
+        pts_feats[0] = self.bev_dropout(pts_feats[0])
         pts_feats[0] = torch.concat((pts_feats[0], range_canvas), dim=-3)
 
         return pts_feats
