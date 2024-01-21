@@ -19,7 +19,7 @@ from waymo_open_dataset.utils import frame_utils
 # from mmengine.dataset import BaseDataset
 from mmdet3d.registry import DATASETS
 from .det3d_dataset import Det3DDataset
-
+from mmdet3d.datasets.transforms import CurriculumDataAugmentation, LoadPseudoLabels
 
 @DATASETS.register_module()
 class IterWaymoDataset(Det3DDataset):
@@ -35,8 +35,8 @@ class IterWaymoDataset(Det3DDataset):
 
     def __init__(self,
                  mode: str = 'train',
+                 domain_adaptation: bool = False,
                  val_divs: int = 5,
-                 num_parallel_reads: int = 200,
                  pipeline: List[Union[dict, Callable]] = [],
                  modality: dict = dict(use_lidar=True, use_camera=False),
                  default_cam_key: str = None,
@@ -50,16 +50,27 @@ class IterWaymoDataset(Det3DDataset):
         mode_folders = {
             'train': 'training',
             'val': 'validation',
-            'test': 'testing'
+            'test': 'validation'
         }
         self.mode = mode
+        self.domain_adaptation = domain_adaptation
         self._fully_initialized = True
         self.val_divs = val_divs
         self.repeat = repeat
-        self.pkl_files = sorted(
-            glob.glob(
-                f'data/waymo/waymo_format/records_shuffled/{mode_folders[self.mode]}/pre_data/*.pkl'
-            ))
+        if self.domain_adaptation:
+            self.pkl_files = sorted(
+                glob.glob(
+                    f'data/waymo/waymo_format/records_shuffled/domain_adaptation/{mode_folders[self.mode]}/pre_data/*.pkl'
+                )+
+                glob.glob(
+                    f'data/waymo/waymo_format/records_shuffled/domain_adaptation/{mode_folders[self.mode]}/pre_data/unlabeled/*.pkl'
+                ))
+        else:
+            self.pkl_files = sorted(
+                glob.glob(
+                    f'data/waymo/waymo_format/records_shuffled/{mode_folders[self.mode]}/pre_data/*.pkl'
+                ))
+        # self.pkl_files = self.pkl_files[16000:16000+500]
         self.skips_n = skips_n
 
         self.length = len(self.pkl_files) // self.skips_n
@@ -73,6 +84,27 @@ class IterWaymoDataset(Det3DDataset):
             filter_empty_gt=filter_empty_gt,
             show_ins_var=show_ins_var,
             **kwargs)
+
+    def update_CDA_epoch(self, epoch):
+        """updates CurriculumDataAugmentation intensity by passing epoch num
+
+        Args:
+            epoch (int): current epoch
+        """
+        for t in self.pipeline.transforms:
+            if isinstance(t, CurriculumDataAugmentation):
+                t.set_epoch(epoch)
+
+    def set_ps_updater(self, ps_updater):
+        """Sets Pseudo label updater to LoadPseudoLabels transformation
+
+        Args:
+            ps_updater (PseudoUpdater): obj. responsible for saving and
+                pseudo labels
+        """
+        for t in self.pipeline.transforms:
+            if isinstance(t, LoadPseudoLabels):
+                t.set_ps_updater(ps_updater)
 
     def __getitem__(self, index) -> dict:
         return self.pipeline(self.pkl_files[index * self.skips_n])

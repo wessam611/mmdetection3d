@@ -7,7 +7,7 @@ from .loading import (LidarDet3DInferencerLoader, LoadAnnotations3D,
                       LoadPointsFromMultiSweeps, LoadWaymoFrame,
                       MonoDet3DInferencerLoader,
                       MultiModalityDet3DInferencerLoader, NormalizePointsColor,
-                      PointSegClassMapping)
+                      PointSegClassMapping, LoadPseudoLabels)
 from .test_time_aug import MultiScaleFlipAug3D
 # yapf: disable
 from .transforms_3d import (AffineResize, BackgroundPointsFilter,
@@ -19,7 +19,8 @@ from .transforms_3d import (AffineResize, BackgroundPointsFilter,
                             PointShuffle, PointsRangeFilter, PolarMix,
                             RandomDropPointsColor, RandomFlip3D,
                             RandomJitterPoints, RandomResize3D,
-                            RandomShiftScale, Resize3D, VoxelBasedPointSampler)
+                            RandomShiftScale, Resize3D, VoxelBasedPointSampler,
+                            CurriculumDataAugmentation)
 
 __all__ = [
     'ObjectSample', 'RandomFlip3D', 'ObjectNoise', 'GlobalRotScaleTrans',
@@ -35,5 +36,5 @@ __all__ = [
     'MultiViewWrapper', 'PhotoMetricDistortion3D', 'MonoDet3DInferencerLoader',
     'LidarDet3DInferencerLoader', 'PolarMix', 'LaserMix',
     'MultiModalityDet3DInferencerLoader', 'LoadWaymoFrame',
-    'CopyPasteRangePoints'
+    'CopyPasteRangePoints', 'CurriculumDataAugmentation', 'LoadPseudoLabels'
 ]

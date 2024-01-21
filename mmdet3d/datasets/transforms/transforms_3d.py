@@ -21,6 +21,7 @@ from mmdet3d.structures.points import BasePoints, LiDARPoints
 from .data_augment_utils import noise_per_object_v3_
 from .range_utils import (flip_range_image, index_flatten, index_unflatten,
                           rotate_range_image)
+from .pc_utils import get_bbox_mask, get_axis_aligned_box_mask, center_bbox_points
 
 
 @TRANSFORMS.register_module()
@@ -634,6 +635,136 @@ class GlobalAlignment(BaseTransform):
         repr_str += f'(rotation_axis={self.rotation_axis})'
         return repr_str
 
+@TRANSFORMS.register_module()
+class CurriculumDataAugmentation(BaseTransform):
+    """
+    Data augmentation with changing intensity based on epoch.
+    Decided to use this transformation to crop points from the top of a
+    bbox randomly as that suited our target data.
+    """
+    def __init__(self, epoch_intensity: dict):
+        """
+        Args:
+            epoch_intensity (dict): mapping epoch to intensity pair
+                pair: (probability of transforming an obj,
+                        percentaged of points to be trimmed from top) 
+        """
+        self.epoch_intensity = self._range_dict_to_k2v(epoch_intensity)
+        self.intensity = self.epoch_intensity[0]
+        super(CurriculumDataAugmentation, self).__init__()
+
+    def _range_dict_to_k2v(self, range_dict):
+        """
+        intensity Tuple(float, float): (probability, percentage) probability
+            of an object to be cut and percentage representing the top part
+            of the object to be removed
+        """
+        out_dict = {}
+        max_key = max(range_dict.keys())
+        for k_, v in range_dict.items():
+            k = k_
+            while k <= max_key:
+                if k in range_dict.keys() and k != k_:
+                    break
+                out_dict[k] = v
+                k += 1
+        self.final_intensity = v
+        return out_dict
+
+    def set_intensity(self, epoch):
+        self.intensity = self.epoch_intensity.get(epoch, self.final_intensity)
+
+    def transform(self, results: dict) -> dict:
+        points = torch.clone(results['points'].tensor)
+        p_obj, perc = self.intensity
+        t_rmv = torch.zeros((points.shape[0]))
+        for i, box in enumerate(results['gt_bboxes_3d']):
+            pn = random.random()
+            if pn <= p_obj:
+                continue
+            axis_mask = get_axis_aligned_box_mask(points, box)
+            bbox_mask, points_scaled = get_bbox_mask(
+                points, axis_mask, box, return_scaled=True)
+            obj_inds = torch.nonzero(bbox_mask)
+            perc = random.random()*perc/2 + perc
+            if perc > 0.5:
+                perc = 0.5
+            t_rmv[obj_inds[:int(perc*obj_inds.shape[0])]] = 1
+        results['points'] = results['points'][t_rmv == 0]
+        if 'range_image' in results:
+            H, W, C = results['range_image'].shape
+            rmv_inds = results['range_index'][t_rmv == 1]
+            range_mask_indices = index_unflatten(rmv_inds,
+                                                results['range_image'].shape)
+            mask_r0 = range_mask_indices[range_mask_indices[:, 0] < H]
+            results['range_image'][mask_r0[:, 0], mask_r0[:, 1], :3] = -1
+            mask_r1 = range_mask_indices[range_mask_indices[:, 0] >= H]
+            if mask_r1.shape[0] > 0:
+                results['range_image'][mask_r1[:, 0]-H, mask_r1[:, 1], :3] = -1
+            results['range_index'] = results['range_index'][t_rmv == 0]
+        return results
+
+@TRANSFORMS.register_module()
+class RandomObjectScaling(BaseTransform):
+    """Scales obj's bboxes and points randomly
+
+    Required keys:
+        points
+        gt_bboxes_3d
+    Updates keys:
+        points
+        gt_bboxes3d
+    """
+    def __init__(
+            self,
+            scale_p: float = 0.5,
+            scale_range: List[float] = [0.95, 1.05]):
+        assert len(scale_range) == 2 and scale_range[1]>=scale_range[0]
+        self.scale_p = scale_p
+        self.scale_range = scale_range
+        super(RandomObjectScaling, self).__init__()
+
+    def scale(self, points_centered, box):
+        """_summary_
+
+        Args:
+            points_centered (torch.tensor): 
+                points in obj's coordinates
+            box (torch.tensor): obj's bboxes
+
+        Returns:
+            torch.tensor: points scaled
+            float: scaling factor
+        """
+        random_scale = np.random.random(3)*(
+            self.scale_range[1]-self.scale_range[0]) + self.scale_range[0]
+        points_centered[:, 2] += box[5]/2
+        points_centered[:, :3] *= random_scale
+        points_centered[:, 2] -= (box[5]*random_scale[2])/2
+        return points_centered, random_scale
+
+    def scale_range_image(self, bbox_mask, points_scaled, scale):
+        """
+        Not yet implemented
+        """
+        pass
+
+    def transform(self, results: dict) -> dict:
+        points = torch.clone(results['points'].tensor)
+        for i, box in enumerate(results['gt_bboxes_3d']):
+            pn = random.random()
+            if pn <= self.scale_p:
+                continue
+            axis_mask = get_axis_aligned_box_mask(points, box)
+            bbox_mask, points_scaled = get_bbox_mask(
+                points, axis_mask, box, return_scaled=True)
+            points_scaled, scale = self.scale(points_scaled, box)
+            points_scaled = center_bbox_points(points_scaled, box, inverse=True)
+            if 'range_image' in results:
+                self.scale_range_image()
+            results['points'].tensor[bbox_mask] = points_scaled
+            results['gt_bboxes_3d'].tensor[i, 3:6] *= scale
+        return results
 
 @TRANSFORMS.register_module()
 class CopyPasteRangePoints(BaseTransform):
@@ -654,46 +785,6 @@ class CopyPasteRangePoints(BaseTransform):
     def __init__(self, cp_prob: float = [0.3, 0.6, 0.6]):
         super(CopyPasteRangePoints, self).__init__()
         self.cp_prob = cp_prob
-
-    def get_bbox_mask(self, points_cp, points_mask, box):
-        pp = points_cp[points_mask]
-        pp[:, :3] = pp[:, :3] - box[:3]
-        R = torch.eye(3)
-        R[0, 0] = np.cos(-box[-1])
-        R[0, 1] = -np.sin(-box[-1])
-        R[1, 0] = np.sin(-box[-1])
-        R[1, 1] = np.cos(-box[-1])
-        pp[:, :3] = pp[:, :3] @ R
-        e = 1e-2
-        p1 = pp[:, 0] >= -box[3] / 2 - e
-        p2 = pp[:, 0] <= box[3] / 2 + e
-        p3 = pp[:, 1] >= -box[4] / 2 - e
-        p4 = pp[:, 1] <= box[4] / 2 + e
-        p5 = pp[:, 2] >= 0
-        p6 = pp[:, 2] <= box[5] + e
-        pp_mask = torch.logical_and(
-            p1,
-            torch.logical_and(
-                p2,
-                torch.logical_and(
-                    p3, torch.logical_and(p4, torch.logical_and(p5, p6)))))
-        points_mask[points_mask.clone()] = pp_mask
-        return points_mask
-
-    def get_axis_aligned_box_mask(self, points, box):
-        x, y, z, xs, ys, zs, yaw = box
-        yaw_ = (-1) * yaw if yaw < 0 else yaw
-        yaw_ = yaw_ - torch.pi if yaw_ >= torch.pi else yaw_
-        yaw_ = torch.pi - yaw_ if yaw_ >= torch.pi / 2 else yaw_
-        l_glob = xs * torch.cos(yaw_) + ys * torch.sin(yaw_)
-        w_glob = xs * torch.sin(yaw_) + ys * torch.cos(yaw_)
-        p1 = points[:, 0] >= (x - l_glob / 2)
-        p2 = points[:, 0] <= (x + l_glob / 2)
-        p3 = points[:, 1] >= (y - w_glob / 2)
-        p4 = points[:, 1] <= (y + w_glob / 2)
-        points_mask = torch.logical_and(
-            torch.logical_and(p1, p2), torch.logical_and(p3, p4))
-        return points_mask
 
     def is_ground(self, results, mask_2d):
         eps = 0.1  # considering <10cm per meter height change as ground
@@ -924,8 +1015,8 @@ class CopyPasteRangePoints(BaseTransform):
             pn = random.random()
             if pn > self.cp_prob[lbl]:
                 continue
-            axis_mask = self.get_axis_aligned_box_mask(points, box)
-            bbox_mask = self.get_bbox_mask(points, axis_mask, box)
+            axis_mask = get_axis_aligned_box_mask(points, box)
+            bbox_mask = get_bbox_mask(points, axis_mask, box)
             merged = self.rot_paste_from_mask(results, bbox_mask,
                                               np.zeros((64, 2650)))
             if merged == False:
@@ -942,8 +1033,8 @@ class CopyPasteRangePoints(BaseTransform):
         boxes_2_remove = []
         for i, (box, lbl) in enumerate(
                 zip(results['gt_bboxes_3d'], results['gt_labels_3d'])):
-            axis_mask = self.get_axis_aligned_box_mask(points, box)
-            bbox_mask = self.get_bbox_mask(points, axis_mask, box)
+            axis_mask = get_axis_aligned_box_mask(points, box)
+            bbox_mask = get_bbox_mask(points, axis_mask, box)
             if torch.sum(bbox_mask) >= 10:
                 boxes_2_remove.append(i)
         results['gt_bboxes_3d'].tensor = results['gt_bboxes_3d'].tensor[
@@ -1038,6 +1129,8 @@ class GlobalRotScaleTrans(BaseTransform):
     - points (np.float32)
     - gt_bboxes_3d (np.float32)
 
+        range_mask_indices = index_unflatten(range_mask_indices,
+                                             results['range_image'].shape)
     Added Keys:
 
     - points (np.float32)

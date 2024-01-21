@@ -1,6 +1,8 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import os
 import copy
 import pickle
+from glob import glob
 from os.path import join
 from typing import Dict, List, Optional, Union
 
@@ -724,7 +726,8 @@ class LoadPointsFromDict(LoadPointsFromFile):
         if self.norm_intensity:
             assert len(self.use_dim) >= 4, \
                 f'When using intensity norm, expect used dimensions >= 4, got {len(self.use_dim)}'  # noqa: E501
-            points[:, 3] = np.tanh(points[:, 3])
+            points.tensor[:, self.use_dim.index(3)] = np.tanh(
+                points.tensor[:, self.use_dim.index(3)] / 255)
         attribute_dims = None
 
         if self.shift_height:
@@ -746,9 +749,9 @@ class LoadPointsFromDict(LoadPointsFromFile):
                     points.shape[1] - 1,
                 ]))
 
-        points_class = get_points_type(self.coord_type)
-        points = points_class(
-            points, points_dim=points.shape[-1], attribute_dims=attribute_dims)
+        # points_class = get_points_type(self.coord_type)
+        # points = points_class(
+        #     points, points_dim=points.shape[-1], attribute_dims=attribute_dims)
         results['points'] = points
         return results
 
@@ -1336,6 +1339,36 @@ class MultiModalityDet3DInferencerLoader(BaseTransform):
 
         return multi_modality_inputs
 
+
+@TRANSFORMS.register_module()
+class LoadPseudoLabels(BaseTransform):
+    """_summary_
+
+    Required keys:
+        gt_bbox_3d: Either empty or filled with labels
+    Updated keys:
+        gt_bboxes_3d: Adds pseudo labels in case empty
+        gt_labels_3d: Adds pseudo labels in case empty (labels<0 are ignored)
+        num_lidar_points_in_box: 
+
+    """
+    def __init__(self):
+        super(LoadPseudoLabels, self).__init__()
+
+    def set_ps_updater(self, ps_updater):
+        self.ps_updater = ps_updater
+
+    def transform(self, single_input: Dict):
+        if not hasattr(self, 'ps_updater') or self.ps_updater is None:
+            raise RuntimeError(
+                'pseudo label updater (ps_updater) is not set for the LoadPseudoLabels step')
+        if single_input['gt_bboxes_3d'].shape[0] == 0:
+            pseudo_label = self.ps_updater.get_ps_labels(
+                single_input['context'], single_input['timestamp_micros']
+            )
+            if len(pseudo_label.keys()) != 0:
+                single_input.update(pseudo_label)
+        return single_input
 
 @TRANSFORMS.register_module()
 class LoadWaymoFrame(BaseTransform):
