@@ -61,7 +61,18 @@ English | [简体中文](README_zh-CN.md)
     <img src="https://user-images.githubusercontent.com/25839884/219026120-ba71e48b-6e94-4bd4-b4e9-b7d175b5e362.png" width="3%" alt="" /></a>
 </div>
 
+## Torchserve (Added section from Fraunhofer IPA thesis, author: Wessam Frrag)
+- [Torchserve installation](https://pytorch.org/serve/getting_started.html)
+- Creating .mar file to be served to localhost: \
+| .py config (highest level) file and .pth weights file have to be compatible \
+```python3 tools/deployment/mmdet3d2torchserve.py configs/pointpillars/pointpillars_st3d_hv_secfpn_sbn-all_16xb2-2x_waymo-iter-3d-3class.py models_weights/pp_std_hv_24_fixed.pth --output-folder serve_models --model-name st3d_hv --force```
+- Serving model to port 8080 \
+```CUDA_VISIBLE_DEVICES=0 torchserve --start --ncs --model-store serve_models --models st3d_hv.mar```
+- Stopping server \
+```torchserve --stop```
+
 ## Introduction
+
 
 MMDetection3D is an open source object detection toolbox based on PyTorch, towards the next-generation platform for general 3D detection. It is a part of the [OpenMMLab](https://openmmlab.com/) project.
 

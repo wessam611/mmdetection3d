@@ -115,6 +115,11 @@ data
 *.pkl.json
 *.log.json
 work_dirs/
+work_dirs_/
+snips_/
+submiss/
+submmm
+serve_models/
 exps/
 *~
 mmdet3d/.mim
@@ -128,8 +133,12 @@ mmdet3d/.mim
 data/s3dis/Stanford3dDataset_v1.2_Aligned_Version/
 data/scannet/scans/
 data/sunrgbd/OFFICIAL_SUNRGBD/
+data_/
 *.obj
 *.ply
+*.txt
+*.bin
+*.gz
 
 # Waymo evaluation
 mmdet3d/evaluation/functional/waymo_utils/compute_detection_metrics_main
