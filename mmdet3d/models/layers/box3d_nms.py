@@ -17,7 +17,8 @@ def box3d_multiclass_nms(
         cfg: dict,
         mlvl_dir_scores: Optional[Tensor] = None,
         mlvl_attr_scores: Optional[Tensor] = None,
-        mlvl_bboxes2d: Optional[Tensor] = None) -> Tuple[Tensor]:
+        mlvl_bboxes2d: Optional[Tensor] = None,
+        mlvl_iou_scores: Optional[Tensor] = None) -> Tuple[Tensor]:
     """Multi-class NMS for 3D boxes. The IoU used for NMS is defined as the 2D
     IoU between BEV boxes.
 
@@ -53,6 +54,7 @@ def box3d_multiclass_nms(
     dir_scores = []
     attr_scores = []
     bboxes2d = []
+    iou_scores = []
     for i in range(0, num_classes):
         # get bboxes and scores of this class
         cls_inds = mlvl_scores[:, i] > score_thr
@@ -85,6 +87,10 @@ def box3d_multiclass_nms(
         if mlvl_bboxes2d is not None:
             _mlvl_bboxes2d = mlvl_bboxes2d[cls_inds]
             bboxes2d.append(_mlvl_bboxes2d[selected])
+        if mlvl_iou_scores is not None:
+            _mlvl_iou_scores = mlvl_iou_scores[cls_inds]
+            iou_scores.append(_mlvl_iou_scores[selected])
+
 
     if bboxes:
         bboxes = torch.cat(bboxes, dim=0)
@@ -96,6 +102,8 @@ def box3d_multiclass_nms(
             attr_scores = torch.cat(attr_scores, dim=0)
         if mlvl_bboxes2d is not None:
             bboxes2d = torch.cat(bboxes2d, dim=0)
+        if mlvl_iou_scores is not None:
+            iou_scores = torch.cat(iou_scores, dim=0)
         if bboxes.shape[0] > max_num:
             _, inds = scores.sort(descending=True)
             inds = inds[:max_num]
@@ -108,6 +116,8 @@ def box3d_multiclass_nms(
                 attr_scores = attr_scores[inds]
             if mlvl_bboxes2d is not None:
                 bboxes2d = bboxes2d[inds]
+            if mlvl_iou_scores is not None:
+                iou_scores = iou_scores[inds]
     else:
         bboxes = mlvl_scores.new_zeros((0, mlvl_bboxes.size(-1)))
         scores = mlvl_scores.new_zeros((0, ))
@@ -118,6 +128,8 @@ def box3d_multiclass_nms(
             attr_scores = mlvl_scores.new_zeros((0, ))
         if mlvl_bboxes2d is not None:
             bboxes2d = mlvl_scores.new_zeros((0, 4))
+        if mlvl_iou_scores is not None:
+            iou_scores = mlvl_scores.new_zeros((0, ))
 
     results = (bboxes, scores, labels)
 
@@ -127,6 +139,8 @@ def box3d_multiclass_nms(
         results = results + (attr_scores, )
     if mlvl_bboxes2d is not None:
         results = results + (bboxes2d, )
+    if mlvl_iou_scores is not None:
+        results = results + (iou_scores, )
 
     return results
 

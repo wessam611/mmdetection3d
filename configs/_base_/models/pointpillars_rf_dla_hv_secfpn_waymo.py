@@ -6,6 +6,8 @@
 voxel_size = [0.32, 0.32, 6]
 model = dict(
     type='MVXRFFasterRCNN',
+    rv_dropout_p=0.2,
+    bev_dropout_p=0.4,
     rf_net=dict(
         type='DLABackbone',
         inC=6,
@@ -73,7 +75,7 @@ model = dict(
         upsample_strides=[1, 2, 4],
         out_channels=[128, 128, 128]),
     pts_bbox_head=dict(
-        type='Anchor3DHead',
+        type='Anchor3DHeadIoU',
         num_classes=3,
         in_channels=384 + 64,
         feat_channels=384 + 64,
