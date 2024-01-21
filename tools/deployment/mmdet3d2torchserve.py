@@ -53,6 +53,7 @@ def mmdet3d2torchserve(
         args = Namespace(
             **{
                 'model_file': f'{tmpdir}/config.py',
+                'config_file': None,
                 'serialized_file': checkpoint_file,
                 'handler': f'{Path(__file__).parent}/mmdet3d_handler.py',
                 'model_name': model_name or Path(checkpoint_file).stem,
