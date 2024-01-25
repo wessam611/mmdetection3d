@@ -1,0 +1,23 @@
+# Used for serving
+version: '3'
+services:
+  server:
+    container_name: pillars_det
+    image: pillars_det
+    # stdin_open: true
+    # tty: true
+    # runtime: nvidia
+    # devices:
+    #   - "/dev/nvidia0:/dev/nvidia0"
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./:/home/source/mmdetection3d
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
+    command: >
+      sh -c  "/bin/bash &&
+       cd /home/source/mmdetection3d &&
+       python3.8 serving/run_serve.py"

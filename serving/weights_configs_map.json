@@ -1,0 +1,9 @@
+{
+    "models": [
+        {
+            "name": "st3d_hv",
+            "weights_path": "pp_std_hv_24.pth",
+            "config_path": "configs/pointpillars/pointpillars_st3d_hv_secfpn_sbn-all_16xb2-2x_waymo-iter-3d-3class.py"
+        }
+    ]
+}

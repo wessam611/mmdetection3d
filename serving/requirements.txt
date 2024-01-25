@@ -1,0 +1,7 @@
+numba
+tensorflow==2.11.0
+waymo-open-dataset-tf-2-11-0==1.6.0
+numpy==1.24.3
+pyquaternion==0.9.9
+lyft_dataset_sdk==0.0.8
+nuscenes-devkit==1.1.10
