@@ -3,7 +3,6 @@ import pickle
 
 import matplotlib.patches as patches
 import numpy as np
-import open3d as o3d
 import tensorflow as tf
 from joblib import Parallel, delayed
 from matplotlib import pyplot as plt
@@ -16,10 +15,6 @@ tf.config.experimental.set_visible_devices([], 'GPU')
 import tensorflow_datasets as tfds
 from waymo_open_dataset import dataset_pb2, label_pb2
 from waymo_open_dataset.protos import metrics_pb2
-
-from mmdet3d.datasets.transforms.waymo_utils import \
-    convert_range_image_to_point_cloud
-
 
 def load_frame_inputs(frame) -> tuple:
     """extract frame's range-view images and convert them to pointclouds.
@@ -95,40 +90,41 @@ def load_frame_inputs(frame) -> tuple:
 def create_pd_file_example(out_path, cloud_path):
     """Creates a prediction objects file."""
     cloud_bucket = tfds.core.Path(cloud_path)
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
     for split in ['training', 'validation', 'testing']:
         split_files = tf.io.gfile.glob(
             os.path.join(cloud_bucket, f'{split}/segment*'))
-
+        if not os.path.exists(os.path.join(out_path, f'{split}/')):
+            os.makedirs(os.path.join(out_path, f'{split}/'))
         def write_file(file):
+            tf.config.experimental.set_visible_devices([], 'GPU')
             frame = open_dataset.Frame()
             ds = tf.data.TFRecordDataset([file],
                                          num_parallel_reads=1,
                                          compression_type='')
-            if split == 'training':
-                ds = ds.shuffle(200)
-            with tf.io.TFRecordWriter(
-                    f'{out_path}/{split}/{file.split("/")[-1]}') as writer:
-                for elem in tqdm(ds):
-                    frame.ParseFromString(bytearray(elem.numpy()))
-                    points, nlz_points, range_index = load_frame_inputs(frame)
+            for i, elem in tqdm(enumerate(ds)):
+                if i%5 != 0:
+                    continue
+                frame.ParseFromString(bytearray(elem.numpy()))
+                points, nlz_points, range_index = load_frame_inputs(frame)
 
-                    data_dict = {
-                        'points': points,
-                        'nlz_points': nlz_points,
-                        'range_index': range_index
-                    }
-                    with open(
-                            os.path.join(
-                                out_path,
-                                f'{split}/pre_data/{frame.context.name}_{frame.timestamp_micros}.pkl'
-                            ), 'wb') as f_pkl:
-                        pickle.dump(data_dict, f_pkl)
+                data_dict = {
+                    'frame': elem.numpy(),
+                    'points': points,
+                    'nlz_points': nlz_points,
+                    'range_index': range_index
+                }
+                with open(
+                        os.path.join(
+                            out_path,
+                            f'{split}/{frame.context.name}_{frame.timestamp_micros}.pkl'
+                        ), 'wb') as f_pkl:
+                    pickle.dump(data_dict, f_pkl)
 
-                    writer.write(bytearray(elem.numpy()))
-
-        Parallel(n_jobs=64)(delayed(write_file)(file) for file in split_files)
+        Parallel(n_jobs=16)(delayed(write_file)(file) for file in split_files)
 
 
 create_pd_file_example(
-    '/home/source/mmdetection3d/data/waymo/waymo_format/records_shuffled',
-    'gs://waymo_open_dataset_v_1_4_1//individual_files/')
+    '/home/wessam/src/mmdetection3d/data/waymo/waymo_format/records_shuffled/domain_adaptation/',
+    'gs://waymo_open_dataset_v_1_4_1//individual_files/domain_adaptation/')

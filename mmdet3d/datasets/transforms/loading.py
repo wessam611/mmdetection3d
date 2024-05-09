@@ -1423,7 +1423,8 @@ class LoadWaymoFrame(BaseTransform):
                  target_classes: List = ['Car', 'Pedestrian', 'Cyclist'],
                  with_bbox_3d: bool = True,
                  with_label_3d: bool = True,
-                 pkl_files_path: str = None):
+                 pkl_files_path: str = None,
+                 shift_height=0):
         super().__init__()
         self.kitti_classes = ['Car', 'Pedestrian', 'Cyclist']
         self.class_mapping = {
@@ -1447,6 +1448,7 @@ class LoadWaymoFrame(BaseTransform):
         self.use_dim = use_dim
         self.norm_intensity = norm_intensity
         self.norm_elongation = norm_elongation
+        self.shift_height = shift_height
 
         self.use_ri2 = True
         self.used_lasers = used_lasers
@@ -1548,12 +1550,18 @@ class LoadWaymoFrame(BaseTransform):
                 'range_index': np.array(N, )
                 'range_image': np.array(H, W, 6) - r0&r1 of TOP LiDAR
         """
-
-        results['points'] = points[:, self.use_dim]
+        if -1 in self.use_dim:
+            tmp = self.use_dim
+            tmp[tmp==-1] = 0
+            results['points'] = points[:, tmp]
+            points[:, self.use_dim==-1] = 0
+        else:
+            results['points'] = points[:, self.use_dim]
+        results['points'][:, self.use_dim==2] += self.shift_height
         if self.norm_intensity:
             assert 3 in self.use_dim
             results['points'][:, self.use_dim.index(3)] = np.tanh(
-                results['points'][:, self.use_dim.index(3)] / 255)
+                results['points'][:, self.use_dim.index(3)]/255)
         if self.norm_elongation:
             assert 4 in self.use_dim
             results['points'][:, self.use_dim.index(4)] = np.tanh(
@@ -1564,24 +1572,25 @@ class LoadWaymoFrame(BaseTransform):
         if self.range_index:
             results['range_index'] = range_index
         if self.range_image:
-            (range_images, camera_projections, seg_labels, range_image_top_pose
-             ) = frame_utils.parse_range_image_and_camera_projection(frame)
-            range_images = dict([(k, range_images[k])
-                                 for k in self.used_lasers])
-            for k, v in range_images.items():
-                range_images[k] = []
-                range_images[k].append(
-                    tf.reshape(
-                        tf.convert_to_tensor(value=v[0].data),
-                        v[0].shape.dims).numpy()[..., :3])
-                if self.use_ri2:
+            if frame is not None:
+                (range_images, camera_projections, seg_labels, range_image_top_pose
+                ) = frame_utils.parse_range_image_and_camera_projection(frame)
+                range_images = dict([(k, range_images[k])
+                                    for k in self.used_lasers])
+                for k, v in range_images.items():
+                    range_images[k] = []
                     range_images[k].append(
                         tf.reshape(
-                            tf.convert_to_tensor(value=v[1].data),
-                            v[1].shape.dims).numpy()[..., :3])
-                    range_images[k] = np.concatenate(range_images[k], axis=-1)
-            range_image = range_images[self.used_lasers[0]]
-            results['range_image'] = range_image
+                            tf.convert_to_tensor(value=v[0].data),
+                            v[0].shape.dims).numpy()[..., :3])
+                    if self.use_ri2:
+                        range_images[k].append(
+                            tf.reshape(
+                                tf.convert_to_tensor(value=v[1].data),
+                                v[1].shape.dims).numpy()[..., :3])
+                        range_images[k] = np.concatenate(range_images[k], axis=-1)
+                range_image = range_images[self.used_lasers[0]]
+                results['range_image'] = range_image
         if self.filter_nlz_points:
             results['points'] = results['points'][nlz_points != 1.0]
             if self.range_index:
@@ -1614,18 +1623,25 @@ class LoadWaymoFrame(BaseTransform):
         frame = open_dataset.Frame()
         with open(pkl_path, 'rb') as pkl_file:
             pkl_dict = pickle.load(pkl_file)
-        frame.ParseFromString(bytearray(pkl_dict['frame']))
         points = pkl_dict['points']
         nlz_points = pkl_dict['nlz_points']
         range_index = pkl_dict['range_index'].astype(np.int32)
-        results = self._load_frame_inputs(results, frame, points, nlz_points,
-                                          range_index)
-        results = self._load_labels(results, frame)
-        results['sample_idx'] = -1
-        self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
-        results['box_type_3d'] = self.box_type_3d
-        results['box_mode_3d'] = self.box_mode_3d
-        results['context'] = frame.context.name
-        results['timestamp_micros'] = frame.timestamp_micros
+        if pkl_dict['frame'] is not None:
+            frame.ParseFromString(bytearray(pkl_dict['frame']))
+            results = self._load_frame_inputs(results, frame, points, nlz_points,
+                                            range_index)
+            results = self._load_labels(results, frame)
+            results['sample_idx'] = -1
+            self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
+            results['box_type_3d'] = self.box_type_3d
+            results['box_mode_3d'] = self.box_mode_3d
+            results['context'] = frame.context.name
+            results['timestamp_micros'] = frame.timestamp_micros
+        else:
+            results = self._load_frame_inputs(results, None, points, nlz_points,
+                                            range_index)
+            self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
+            results['box_type_3d'] = self.box_type_3d
+            results['box_mode_3d'] = self.box_mode_3d
 
         return results

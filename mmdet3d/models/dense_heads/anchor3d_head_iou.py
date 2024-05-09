@@ -85,7 +85,7 @@ class Anchor3DHeadIoU(Anchor3DHead):
                 loss_iou_gt,
                 avg_factor=num_total_samples)
         else:
-            loss_iou = iou_score.sum()
+            loss_iou = iou_score.sigmoid().mean()
         return loss_cls, loss_bbox, loss_dir, loss_iou
         # loss calculate
     def loss_by_feat(

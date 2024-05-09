@@ -17,7 +17,7 @@ data_root = 'data/waymo/kitti_format/'
 #      }))
 backend_args = {}
 
-class_names = ['Car', 'Pedestrian', 'Cyclist']
+class_names = ['Pedestrian']
 metainfo = dict(classes=class_names)
 
 point_cloud_range = [-74.88, -74.88, -2, 74.88, 74.88, 4]

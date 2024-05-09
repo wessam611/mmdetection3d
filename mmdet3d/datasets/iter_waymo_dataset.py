@@ -12,7 +12,6 @@ tf.config.experimental.set_visible_devices([], 'GPU')
 import tensorflow_datasets as tfds
 import torch
 from torch.utils.data import IterableDataset
-from torchdata.datapipes.iter import IterableWrapper
 from waymo_open_dataset import dataset_pb2 as open_dataset
 from waymo_open_dataset.utils import frame_utils
 
@@ -45,6 +44,8 @@ class IterWaymoDataset(Det3DDataset):
                  show_ins_var: bool = False,
                  repeat: bool = False,
                  skips_n: int = 5,
+                 data_path: str = None,
+                 files_txt: str = None,
                  **kwargs):
         assert mode in ['train', 'val', 'test']
         mode_folders = {
@@ -57,20 +58,32 @@ class IterWaymoDataset(Det3DDataset):
         self._fully_initialized = True
         self.val_divs = val_divs
         self.repeat = repeat
-        if self.domain_adaptation:
+        if data_path is None:
+            if self.domain_adaptation:
+                self.pkl_files = sorted(
+                    glob.glob(
+                        f'data/waymo/waymo_format/records_shuffled/domain_adaptation/{mode_folders[self.mode]}/*.pkl'
+                    )+
+                    glob.glob(
+                        f'data/waymo/waymo_format/records_shuffled/domain_adaptation/{mode_folders[self.mode]}/unlabeled/*.pkl'
+                    ))
+            else:
+                self.pkl_files = sorted(
+                    glob.glob(
+                        f'data/waymo/waymo_format/records_shuffled/{mode_folders[self.mode]}/pre_data/*.pkl'
+                    ))
+        elif files_txt is None:
             self.pkl_files = sorted(
                 glob.glob(
-                    f'data/waymo/waymo_format/records_shuffled/domain_adaptation/{mode_folders[self.mode]}/pre_data/*.pkl'
-                )+
-                glob.glob(
-                    f'data/waymo/waymo_format/records_shuffled/domain_adaptation/{mode_folders[self.mode]}/pre_data/unlabeled/*.pkl'
+                    f'{data_path}/*.pkl'
                 ))
         else:
-            self.pkl_files = sorted(
-                glob.glob(
-                    f'data/waymo/waymo_format/records_shuffled/{mode_folders[self.mode]}/pre_data/*.pkl'
-                ))
-        # self.pkl_files = self.pkl_files[16000:16000+500]
+            self.pkl_files = []
+            with open(files_txt, 'r') as f:
+                line = f.readline()
+                while line:
+                    self.pkl_files.append(os.path.join(data_path, line))
+                    line = f.readline()
         self.skips_n = skips_n
 
         self.length = len(self.pkl_files) // self.skips_n
@@ -107,7 +120,7 @@ class IterWaymoDataset(Det3DDataset):
                 t.set_ps_updater(ps_updater)
 
     def __getitem__(self, index) -> dict:
-        return self.pipeline(self.pkl_files[index * self.skips_n])
+        return self.pipeline(self.pkl_files[index*self.skips_n])
 
     def __len__(self) -> int:
         return self.length
