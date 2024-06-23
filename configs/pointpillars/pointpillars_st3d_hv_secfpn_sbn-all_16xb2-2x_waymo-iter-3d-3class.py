@@ -5,6 +5,12 @@ _base_ = [
     '../_base_/default_runtime.py',
 ]
 
+
+point_cloud_range = [-74.88, -74.88, -2, 74.88, 74.88, 4]
+val_labels_pth = '/home/wessam/src/ransac_preprocessing/pointclouds/base_gt/annotated_gt/'
+train_labels_pth = '/home/wessam/src/ransac_preprocessing/pointclouds/base_gt/hv_kalman/'
+input_pth = '/home/wessam/src/ransac_preprocessing/pointclouds/pkl_data_aligned/'
+
 lr = 0.001
 optim_wrapper = dict(optimizer=dict(lr=lr))
 # Default setting for scaling LR automatically
@@ -54,24 +60,30 @@ default_hooks = dict(
 target_train_pipeline = [
     dict(
         type='LoadWaymoFrame',
-        range_index=True,
-        reverse_index=True,
-        range_image=True,
-        norm_intensity=True,
-        norm_elongation=True,
-        # pkl_files_path=
-        # 'data/waymo/waymo_format/records_shuffled/domain_adaptation/training/pre_data/'
-        ),
+        use_dim=[0, 1, 2, -1, -1],
+        filter_nlz_points=False,
+        with_bbox_3d=True,
+        with_label_3d=True,
+        shift_height=0,
+        pkl_files_path=input_pth),
     dict(
         type='LoadPseudoLabels',
     ),
-    # dict(
-    #     type='CopyPasteRangePoints'),
     dict(
         type='RandomFlip3D',
         sync_2d=False,
-        flip_ratio_bev_horizontal=0.5,
-        flip_ratio_bev_vertical=0.5),
+        flip_ratio_bev_horizontal=0.2,
+        flip_ratio_bev_vertical=0.8),
+    dict(
+        type='RandomObjectScaling',
+        scale_p=0.2,
+        scale_range=[0.95, 1.05]),
+    dict(
+        dict(
+        type='RandomObjectNoise',
+        noise_p=0.5,
+        noise_range=[-0.1, 0.1]),
+    ),  
     dict(
         type='GlobalRotScaleTrans',
         rot_range=[-0.78539816, 0.78539816],
@@ -80,20 +92,17 @@ target_train_pipeline = [
         type='CurriculumDataAugmentation',
         epoch_intensity=dict(
            [(0, (0.05, 0.1)),
-            (4, (0.1, 0.1)),
-            (8, (0.2, 0.2)),
-            (16, (0.2, 0.4))]
+            (24+2, (0.1, 0.2)),
+            (24+4, (0.2, 0.2)),
+            (24+6, (0.2, 0.2))]
         )
     ),
-    dict(type='PointsRangeFilter', point_cloud_range={{_base_.point_cloud_range}}),
-    dict(type='ObjectRangeFilter', point_cloud_range={{_base_.point_cloud_range}}),
+    dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='PointShuffle'),
     dict(
         type='Pack3DDetInputs',
-        keys=[
-            'points', 'range_image', 'range_index', 'gt_bboxes_3d',
-            'gt_labels_3d'
-        ],
+        keys=['points', 'gt_bboxes_3d', 'gt_labels_3d'],
         meta_keys=[
             'context', 'timestamp_micros', 'box_type_3d', 'box_mode_3d',
             'sample_idx'
@@ -103,21 +112,20 @@ target_train_pipeline = [
 target_eval_pipeline = [
     dict(
         type='LoadWaymoFrame',
-        range_index=True,
-        range_image=True,
-        norm_intensity=True,
-        norm_elongation=True,
-        # pkl_files_path=
-        # 'data/waymo/waymo_format/records_shuffled/domain_adaptation/validation/pre_data/'
-        ),
+        use_dim=[0, 1, 2, -1, -1],
+        filter_nlz_points=False,
+        with_bbox_3d=False,
+        with_label_3d=False,
+        shift_height=0,
+        pkl_files_path=input_pth),
+    
     dict(
         type='LoadPseudoLabels',
     ),
     dict(
         type='Pack3DDetInputs',
         keys=[
-            'points', 'range_image', 'range_index', 'gt_bboxes_3d',
-            'gt_labels_3d', 'num_lidar_points_in_box'
+            'points', 'gt_bboxes_3d', 'gt_labels_3d', 'num_lidar_points_in_box', 'gt_scores_3d'
         ],
         meta_keys=[
             'context', 'timestamp_micros', 'box_type_3d', 'box_mode_3d',
@@ -132,36 +140,49 @@ target_train_dataloader = dict(
     batch_size=4,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
-        type='IterWaymoDataset',
-        pipeline=target_train_pipeline,
-        modality={{_base_.input_modality}},
-        mode='train',
-        domain_adaptation=True,
-        metainfo={{_base_.metainfo}},
-        repeat=True,
-        val_divs=1,
-        box_type_3d='LiDAR',
-        backend_args={{_base_.backend_args}}))
+        type='RepeatDataset',
+        times=1,
+        dataset=dict(
+            type={{_base_.dataset_type}},
+            pipeline=target_train_pipeline,
+            modality={{_base_.input_modality}},
+            mode='train',
+            metainfo={{_base_.metainfo}},
+            repeat=True,
+            val_divs=1,
+            box_type_3d='LiDAR',
+            skips_n=1,
+            data_path=input_pth,
+            labels_path=train_labels_pth,
+            files_txt='/home/wessam/src/ransac_preprocessing/pointclouds/train_split_cl.txt',
+            backend_args={{_base_.backend_args}})))
 
 target_val_dataloader = dict(
     batch_size=4,
-    num_workers=3,
-    prefetch_factor=2,
+    num_workers=0,
+    # persistent_workers=True,
+    # prefetch_factor=2,
     sampler=dict(type='DefaultSampler', shuffle=False),
-    persistent_workers=False,
+    # persistent_workers=False,
     dataset=dict(
-        type='IterWaymoDataset',
+        type={{_base_.dataset_type}},
         repeat=False,
         pipeline=target_eval_pipeline,
         modality={{_base_.input_modality}},
         test_mode=True,
         mode='val',
-        domain_adaptation=True,
         val_divs=1,
         metainfo={{_base_.metainfo}},
         box_type_3d='LiDAR',
-        backend_args={{_base_.backend_args}}))
+        backend_args={{_base_.backend_args}},
+        skips_n=1,
+        data_path=input_pth,
+        labels_path=val_labels_pth,
+        files_txt='/home/wessam/src/ransac_preprocessing/pointclouds/val_split.txt',))
 
 runner_type = 'ST3DRunner'
-load_from='work_dirs/pointpillars_st3d_hv_secfpn_sbn-all_16xb2-2x_waymo-iter-3d-3class/epoch_16.pth'
+# load_from='work_dirs/pointpillars_st3d_hv_secfpn_sbn-all_16xb2-2x_waymo-iter-3d-3class/epoch_24.pth'
+# resume=True
+
+load_from = 'models_weights/pp_std_hv_24_fixed.pth'
 resume=True

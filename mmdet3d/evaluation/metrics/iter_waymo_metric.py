@@ -29,7 +29,7 @@ import time
 class IterWaymoMetric(WaymoMetric):
     """Waymo evaluation metric for iterable style dataset."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self,class_names=['Car', 'Pedestrian', 'Cyclist'], *args, **kwargs) -> None:
         pklfile_prefix = f'submiss/{time.strftime("%Y%m%d-%H%M%S")}'
         super().__init__(prefix='Waymo metric', pklfile_prefix=pklfile_prefix, *args, **kwargs)
         self.k2w_cls_map = {
@@ -38,7 +38,7 @@ class IterWaymoMetric(WaymoMetric):
             'Sign': label_pb2.Label.TYPE_SIGN,
             'Cyclist': label_pb2.Label.TYPE_CYCLIST,
         }
-        self.class_names = ['Car', 'Pedestrian', 'Cyclist']
+        self.class_names = class_names
         self.gt_tmp_dir = tempfile.TemporaryDirectory()
         self.waymo_bin_file = f'{self.gt_tmp_dir.name}/gt.bin'
 
@@ -72,7 +72,10 @@ class IterWaymoMetric(WaymoMetric):
             gt_2d = gt_data[i].gt_instances
             result['gt_instances_3d'] = gt_3d.to('cpu')
             result['gt_instances'] = gt_2d.to('cpu')
-
+            # if 'gt_scores_3d' in result:
+            #     print(result['gt_scores_3d'])
+            #     result['gt_instances_3d'] = result['gt_instances_3d'][result['gt_scores_3d']>0.25]
+            #     result['pred_instances_3d'] = result['pred_instances_3d'][result['pred_instances_3d']['labels_3d'] == 1]
             sample_idx = data_sample['sample_idx']
             result['sample_idx'] = sample_idx
             result['context'] = data_sample['context']
@@ -221,9 +224,13 @@ class IterWaymoMetric(WaymoMetric):
             o.object.type = self.k2w_cls_map[self.class_names[cls]]
             if 'scores_3d' in instances:
                 o.score = score
+            else:
+                o.score = 1.0
             if 'num_lidar_points_in_box' in instances:
                 o.object.num_lidar_points_in_box = instances[
                     'num_lidar_points_in_box'][instance_idx].item()
+            else:
+                o.object.num_lidar_points_in_box = 50
             o.context_name = context_name
             o.frame_timestamp_micros = frame_timestamp_micros
             return o

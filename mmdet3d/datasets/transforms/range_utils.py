@@ -38,7 +38,7 @@ def rotate_range_image(range_image,
     if ri_avail and flattened:
         range_index = index_unflatten(range_index, range_image.shape)
 
-    pix_rot = int((-angle / 360) * W)
+    pix_rot = int((angle / 360) * W)
     if not rotate_index_only:
         range_image = np.roll(range_image, pix_rot, 1)
     if ri_avail:

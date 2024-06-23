@@ -31,8 +31,8 @@ def get_bbox_mask(points_cp, points_mask, box, return_scaled=False):
             torch.logical_and(
                 p3, torch.logical_and(p4, torch.logical_and(p5, p6)))))
     points_mask[points_mask.clone()] = pp_mask
-    pp = pp[pp_mask]
     if return_scaled:
+        pp = pp[pp_mask]
         return points_mask, pp
     return points_mask
 

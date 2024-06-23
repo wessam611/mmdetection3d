@@ -1,6 +1,6 @@
 _base_ = [
-    '../_base_/models/pointpillars_rf_hv_secfpn_waymo.py',
-    '../_base_/datasets/waymo-rf-iter-3d-3class.py',
+    '../_base_/models/pointpillars_rf_dla_hv_secfpn_waymo.py',
+    '../_base_/datasets/waymo-rf-iter-3d-3class_low_res.py',
     '../_base_/schedules/schedule-2x.py',
     '../_base_/default_runtime.py',
 ]
@@ -27,9 +27,9 @@ param_scheduler = [
         milestones=[20, 23],
         gamma=0.1)
 ]
-train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=24, val_interval=6)
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=24, val_interval=12)
 default_hooks = dict(
     checkpoint=dict(type='CheckpointHook', by_epoch=True, interval=1))
-                                                                                                                       
-load_from='work_dirs/pointpillars_hv_secfpn_sbn-all_16xb2-2x_waymo-iter-3d-3class/epoch_5.pth'
-resume=True
+                                                                                                         
+# resume=True
+# load_from='work_dirs/pointpillars_rf_dla_hv_secfpn_sbn-all_16xb2-2x_waymo-iter-3d-3class/epoch_6.pth'

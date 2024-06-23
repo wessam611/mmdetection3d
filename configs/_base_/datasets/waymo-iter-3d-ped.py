@@ -41,7 +41,8 @@ train_pipeline = [
         norm_intensity=True,
         norm_elongation=True,
         pkl_files_path=
-        'data/waymo/waymo_format/records_shuffled/training/pre_data/'),
+        'data/waymo/waymo_format/records_shuffled/training/pre_data/',
+        target_classes=class_names),
     dict(
         type='RandomFlip3D',
         sync_2d=False,
@@ -71,7 +72,8 @@ eval_pipeline = [
         norm_intensity=True,
         norm_elongation=True,
         pkl_files_path=
-        'data/waymo/waymo_format/records_shuffled/validation/pre_data/'),
+        'data/waymo/waymo_format/records_shuffled/validation/pre_data/',
+        target_classes=class_names),
     dict(
         type='Pack3DDetInputs',
         keys=[
@@ -159,6 +161,7 @@ val_evaluator = dict(
     waymo_bin_file='.data/waymo/waymo_format/gt.bin',
     data_root='gs://waymo_open_dataset_v_1_4_1/individual_files/',
     backend_args=backend_args,
+    class_names=class_names,
     convert_kitti_format=False)
 test_evaluator = val_evaluator
 

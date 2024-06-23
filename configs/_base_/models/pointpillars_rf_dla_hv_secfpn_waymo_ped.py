@@ -5,9 +5,44 @@
 # keys in the config.
 voxel_size = [0.32, 0.32, 6]
 model = dict(
-    type='MVXFasterRCNN',
+    type='MVXRFFasterRCNN',
+    rv_dropout_p=0.2,
+    bev_dropout_p=0.4,
+    rf_net=dict(
+        type='DLABackbone',
+        inC=6,
+        conv_dict={
+            'res_2':
+            dict(type='', kernel_size=3, in_C=64, out_Cs=[32, 64], coord_C=6)
+        },
+        num_block={
+            'res1': 2,
+            'res2a': 3,
+            'res2': 3,
+            'res3a': 5,
+            'res3': 5,
+            'agg1': 2,
+            'agg2': 2,
+            'agg2a': 1,
+            'agg3': 2,
+        },
+        num_C={
+            'res1': 64,
+            'res2a': 64,
+            'res2': 64,
+            'res3a': 128,
+            'res3': 128,
+            'agg1': 64,
+            'agg2': 64,
+            'agg2a': 64,
+            'agg3': 64,
+        },
+        add_data_sc=False,
+        fpn_strides=(1, 2, 4)),
+    dla_to_dist=[(30, 100), (15, 30), (0, 15)],
     data_preprocessor=dict(
-        type='Det3DDataPreprocessor',
+        type='DetRF3DDataPreprocessor',
+        range_xyz_coo=True,
         voxel=True,
         voxel_layer=dict(
             max_num_points=20,
@@ -42,8 +77,8 @@ model = dict(
     pts_bbox_head=dict(
         type='Anchor3DHeadIoU',
         num_classes=1,
-        in_channels=384,
-        feat_channels=384,
+        in_channels=384 + 64,
+        feat_channels=384 + 64,
         use_direction_classifier=True,
         anchor_generator=dict(
             type='AlignedAnchor3DRangeGenerator',

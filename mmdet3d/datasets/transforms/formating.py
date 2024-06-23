@@ -50,7 +50,7 @@ class Pack3DDetInputs(BaseTransform):
     INPUTS_KEYS = ['points', 'img', 'range_image', 'range_index']
     INSTANCEDATA_3D_KEYS = [
         'gt_bboxes_3d', 'gt_labels_3d', 'attr_labels', 'depths', 'centers_2d',
-        'num_lidar_points_in_box'
+        'num_lidar_points_in_box', 'gt_scores_3d'
     ]
     INSTANCEDATA_2D_KEYS = [
         'gt_bboxes',
@@ -141,6 +141,15 @@ class Pack3DDetInputs(BaseTransform):
             - 'data_samples' (:obj:`Det3DDataSample`): The annotation info
               of the sample.
         """
+        # import os
+        # import pickle
+        # file_name = results['path']
+        # if not os.path.exists("/home/wessam/src/ransac_preprocessing/pointclouds/aug/after/"):
+        #     os.makedirs('/home/wessam/src/ransac_preprocessing/pointclouds/aug/after/')
+        # with open(os.path.join('/home/wessam/src/ransac_preprocessing/pointclouds/aug/after/', file_name), 'wb') as f:
+        #     pickle.dump({
+        #         'points': results['points'].tensor.numpy().tolist()
+        #     }, f)
         # Format 3D data
         if 'points' in results:
             if isinstance(results['points'], BasePoints):

@@ -41,15 +41,17 @@ db_sampler = dict(
 train_pipeline = [
     dict(
         type='LoadWaymoFrame',
+        use_dim=[0, 1, 2, -1, -1],
+        range_dim=32,
         range_index=True,
         reverse_index=True,
         range_image=True,
-        norm_intensity=True,
-        norm_elongation=True,
+        norm_intensity=False,
+        norm_elongation=False,
         pkl_files_path=
         'data/waymo/waymo_format/records_shuffled/training/pre_data/'),
-    # dict(
-    #     type='CopyPasteRangePoints'),
+    dict(
+        type='CopyPasteRangePoints'),
     # dict(
     #     type='RandomObjectScaling',
     #     scale_p=0.7,
@@ -88,10 +90,12 @@ train_pipeline = [
 eval_pipeline = [
     dict(
         type='LoadWaymoFrame',
+        use_dim=[0, 1, 2, -1, -1],
+        range_dim=32,
         range_index=True,
         range_image=True,
-        norm_intensity=True,
-        norm_elongation=True,
+        norm_intensity=False,
+        norm_elongation=False,
         pkl_files_path=
         'data/waymo/waymo_format/records_shuffled/validation/pre_data/'),
     dict(
@@ -121,8 +125,7 @@ train_dataloader = dict(
         repeat=True,
         val_divs=1,
         box_type_3d='LiDAR',
-        backend_args=backend_args,
-        skips_n=1))
+        backend_args=backend_args))
 val_dataloader = dict(
     batch_size=2,
     num_workers=0,

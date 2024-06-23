@@ -45,6 +45,7 @@ class IterWaymoDataset(Det3DDataset):
                  repeat: bool = False,
                  skips_n: int = 5,
                  data_path: str = None,
+                 labels_path: str = None,
                  files_txt: str = None,
                  **kwargs):
         assert mode in ['train', 'val', 'test']
@@ -77,15 +78,31 @@ class IterWaymoDataset(Det3DDataset):
                 glob.glob(
                     f'{data_path}/*.pkl'
                 ))
+            if labels_path is not None:
+                self.label_files = sorted(
+                    glob.glob(
+                    f'{labels_path}/*.pkl'
+                ))
         else:
             self.pkl_files = []
+            if labels_path is not None:
+                self.label_files = []
             with open(files_txt, 'r') as f:
                 line = f.readline()
                 while line:
-                    self.pkl_files.append(os.path.join(data_path, line))
+                    if labels_path is not None:
+                        if os.path.exists(os.path.join(labels_path, line.strip())):
+                            self.label_files.append(os.path.join(labels_path, line.strip()))
+                            self.pkl_files.append(os.path.join(data_path, line.strip()))
+                    else:
+                        self.pkl_files.append(os.path.join(data_path, line.strip()))
                     line = f.readline()
+        
         self.skips_n = skips_n
-
+        # self.pkl_files = self.pkl_files[500:1500]
+        # self.pkl_files = [os.path.join(data_path, '2023-07-07-16-40-31_1688741212988545418.pkl')]
+        # if labels_path:
+        #     self.label_files = [os.path.join(labels_path, '2023-07-07-16-40-31_1688741212988545418.pkl')]
         self.length = len(self.pkl_files) // self.skips_n
 
         Det3DDataset.__init__(
@@ -120,7 +137,12 @@ class IterWaymoDataset(Det3DDataset):
                 t.set_ps_updater(ps_updater)
 
     def __getitem__(self, index) -> dict:
-        return self.pipeline(self.pkl_files[index*self.skips_n])
+        if not hasattr(self, 'label_files') or self.label_files is None:
+            return self.pipeline(self.pkl_files[index*self.skips_n]), self.pkl_files[index*self.skips_n]
+        else:
+            return self.pipeline(self.pkl_files[index*self.skips_n]) # , self.label_files[index*self.skips_n]
 
     def __len__(self) -> int:
+        # if self.mode == 'train':
+        #     return 2
         return self.length

@@ -678,18 +678,19 @@ class CurriculumDataAugmentation(BaseTransform):
         points = torch.clone(results['points'].tensor)
         p_obj, perc = self.intensity
         t_rmv = torch.zeros((points.shape[0]))
+
         for i, box in enumerate(results['gt_bboxes_3d']):
             pn = random.random()
-            if pn <= p_obj:
+            if pn >= p_obj:
                 continue
             axis_mask = get_axis_aligned_box_mask(points, box)
             bbox_mask, points_scaled = get_bbox_mask(
                 points, axis_mask, box, return_scaled=True)
             obj_inds = torch.nonzero(bbox_mask)
-            perc = random.random()*perc/2 + perc
-            if perc > 0.5:
-                perc = 0.5
-            t_rmv[obj_inds[:int(perc*obj_inds.shape[0])]] = 1
+            perc_ = random.random()*perc/2 + perc/2
+            zs = points[obj_inds.reshape(-1), 2]*(-1)
+            obj_inds = obj_inds[np.argsort(zs.reshape(-1))]
+            t_rmv[obj_inds[:int(perc_*obj_inds.shape[0])]] = 1
         results['points'] = results['points'][t_rmv == 0]
         if 'range_image' in results:
             H, W, C = results['range_image'].shape
@@ -701,7 +702,74 @@ class CurriculumDataAugmentation(BaseTransform):
             mask_r1 = range_mask_indices[range_mask_indices[:, 0] >= H]
             if mask_r1.shape[0] > 0:
                 results['range_image'][mask_r1[:, 0]-H, mask_r1[:, 1], :3] = -1
-            results['range_index'] = results['range_index'][t_rmv == 0]
+            results['range_index'] = results['range_index'][t_rmv == 0].astype(np.int32)
+        return results
+
+@TRANSFORMS.register_module()
+class RandomObjectNoise(BaseTransform):
+    """Scales obj's bboxes and points randomly
+
+    Required keys:
+        points
+        gt_bboxes_3d
+    Updates keys:
+        points
+        gt_bboxes3d
+    """
+    def __init__(
+            self,
+            noise_p: float = 0.2,
+            noise_range: List[float] = [-0.05, 0.05]):
+        assert len(noise_range) == 2 and noise_range[1]>=noise_range[0]
+        self.noise_p = noise_p
+        self.noise_range = noise_range
+        super(RandomObjectNoise, self).__init__()
+
+    def scale(self, points_centered):
+        """_summary_
+
+        Args:
+            points_centered (torch.tensor): 
+                points in obj's coordinates
+            box (torch.tensor): obj's bboxes
+
+        Returns:
+            torch.tensor: points scaled
+            float: scaling factor
+        """
+        rand_p = torch.randn(points_centered.shape[0]) < self.noise_p
+        rand_noise = torch.rand(points_centered.shape[0])*(self.noise_range[1]-self.noise_range[0])+ self.noise_range[0]
+        points_centered[rand_p, :3] *= torch.unsqueeze(1+rand_noise[rand_p]* torch.pow(torch.norm(points_centered[rand_p], dim=1), -1), 1)
+        return points_centered, rand_p*rand_noise
+
+    def scale_range_image(self, bbox_mask, points_scaled, scale):
+        """
+        Not yet implemented
+        """
+        # pass
+
+    def transform(self, results: dict) -> dict:
+        points = torch.clone(results['points'].tensor)
+        ins = torch.ones(results['gt_bboxes_3d'].shape[0]) > 0
+        for i, box in enumerate(results['gt_bboxes_3d']):
+            pn = random.random()
+            axis_mask = get_axis_aligned_box_mask(points, box)
+            if torch.sum(axis_mask) <= 5:
+                ins[i] = False
+                continue
+            if pn <= self.noise_p:
+                continue
+            # points_, augmentation  = self.scale(points[axis_mask])
+            # if 'range_image' in results:
+            #     self.scale_range_image()
+            # results['points'].tensor[axis_mask] = points_
+        if ins.shape[0] == 1:
+            results['gt_bboxes_3d'] = results['gt_bboxes_3d'][[ins==True]]
+            results['gt_labels_3d'] = results['gt_labels_3d'][[ins==True]]
+        else:
+            results['gt_bboxes_3d'] = results['gt_bboxes_3d'][ins==True]
+            results['gt_labels_3d'] = results['gt_labels_3d'][ins==True]
+        results['points'].tensor, _ = self.scale(results['points'].tensor)
         return results
 
 @TRANSFORMS.register_module()
@@ -1049,9 +1117,9 @@ class CopyPasteRangePoints(BaseTransform):
         results['points'].tensor = np.delete(results['points'].tensor,
                                              pts_2_remove, 0)
         results['range_index'] = np.delete(results['range_index'],
-                                           pts_2_remove)
+                                           pts_2_remove).astype(np.int32)
         results['range_index'] = np.concatenate(
-            [results['range_index'], range_index_2_add])
+            [results['range_index'], range_index_2_add]).astype(np.int32)
         return results
 
 
@@ -1322,7 +1390,7 @@ class PointShuffle(BaseTransform):
         idx = input_dict['points'].shuffle()
         idx = idx.numpy()
         if 'range_index' in input_dict:
-            input_dict['range_index'] = input_dict['range_index'][idx]
+            input_dict['range_index'] = input_dict['range_index'][idx].astype(np.int32)
 
         pts_instance_mask = input_dict.get('pts_instance_mask', None)
         pts_semantic_mask = input_dict.get('pts_semantic_mask', None)
@@ -1437,7 +1505,7 @@ class PointsRangeFilter(BaseTransform):
         input_dict['points'] = clean_points
         points_mask = points_mask.numpy()
         if 'range_index' in input_dict:
-            input_dict['range_index'] = input_dict['range_index'][points_mask]
+            input_dict['range_index'] = input_dict['range_index'][points_mask].astype(np.int32)
 
         pts_instance_mask = input_dict.get('pts_instance_mask', None)
         pts_semantic_mask = input_dict.get('pts_semantic_mask', None)

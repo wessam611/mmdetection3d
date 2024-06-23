@@ -609,9 +609,9 @@ class DetRF3DDataPreprocessor(Det3DDataPreprocessor):
             for i in range(range_xyz_coo.shape[0]):
                 range_inds = data['inputs']['range_index'][i]
                 inds_r1 = range_inds[
-                    range_inds < range_xyz_coo.shape[-1]].type(torch.int32)
+                    range_inds < range_xyz_coo.shape[-1]].type(torch.int64)
                 inds_r2 = (range_inds[range_inds >= range_xyz_coo.shape[-1]] -
-                           range_xyz_coo.shape[-1]).type(torch.int32)
+                           range_xyz_coo.shape[-1]).type(torch.int64)
                 range_xyz_coo[i, :3, inds_r1] = data['inputs']['points'][i].to(
                     self.device)[[range_inds < range_xyz_coo.shape[-1]
                                   ]][:, :3].transpose(0, 1)

@@ -17,26 +17,11 @@ data_root = 'data/waymo/kitti_format/'
 #      }))
 backend_args = {}
 
-class_names = ['Car', 'Pedestrian', 'Cyclist']
+class_names = ['Pedestrian']
 metainfo = dict(classes=class_names)
 
 point_cloud_range = [-74.88, -74.88, -2, 74.88, 74.88, 4]
 input_modality = dict(use_lidar=True, use_camera=False)
-db_sampler = dict(
-    rate=1.0,
-    batch_size=None,
-    prepare=dict(
-        filter_by_difficulty=[-1],
-        filter_by_min_points=dict(Car=5, Pedestrian=10, Cyclist=10)),
-    classes=class_names,
-    sample_groups=dict(Car=15, Pedestrian=10, Cyclist=10),
-    points_loader=dict(
-        type='LoadWaymoFrame',
-        norm_intensity=True,
-        norm_elongation=True,
-        pkl_files_path=
-        'data/waymo/waymo_format/records_shuffled/training/pre_data/'),
-    backend_args=backend_args)
 
 train_pipeline = [
     dict(
@@ -47,13 +32,10 @@ train_pipeline = [
         norm_intensity=True,
         norm_elongation=True,
         pkl_files_path=
-        'data/waymo/waymo_format/records_shuffled/training/pre_data/'),
+        'data/waymo/waymo_format/records_shuffled/training/pre_data/',
+        target_classes=class_names),
     # dict(
     #     type='CopyPasteRangePoints'),
-    # dict(
-    #     type='RandomObjectScaling',
-    #     scale_p=0.7,
-    #     scale_range=[0.9, 1.1]),
     dict(
         type='RandomFlip3D',
         sync_2d=False,
@@ -63,15 +45,6 @@ train_pipeline = [
         type='GlobalRotScaleTrans',
         rot_range=[-0.78539816, 0.78539816],
         scale_ratio_range=[0.95, 1.05]),
-    dict(
-        type='CurriculumDataAugmentation',
-        epoch_intensity=dict(
-           [(0, (0.05, 0.1)),
-            (24+4, (0.1, 0.1)),
-            (24+8, (0.2, 0.2)),
-            (24+16, (0.2, 0.4))]
-        )
-    ),
     dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='PointShuffle'),
@@ -93,7 +66,8 @@ eval_pipeline = [
         norm_intensity=True,
         norm_elongation=True,
         pkl_files_path=
-        'data/waymo/waymo_format/records_shuffled/validation/pre_data/'),
+        'data/waymo/waymo_format/records_shuffled/validation/pre_data/',
+        target_classes=class_names),
     dict(
         type='Pack3DDetInputs',
         keys=[
@@ -121,12 +95,12 @@ train_dataloader = dict(
         repeat=True,
         val_divs=1,
         box_type_3d='LiDAR',
-        backend_args=backend_args,
-        skips_n=1))
+        skips_n=1,
+        backend_args=backend_args))
 val_dataloader = dict(
-    batch_size=2,
+    batch_size=4,
     num_workers=0,
-    # prefetch_fact/or=2,
+    # prefetch_factor=2,
     # persistent_workers=False,
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(
@@ -183,6 +157,7 @@ val_evaluator = dict(
     waymo_bin_file='./data/waymo/waymo_format/gt.bin',
     data_root='gs://waymo_open_dataset_v_1_4_1/individual_files/',
     backend_args=backend_args,
+    class_names=class_names,
     convert_kitti_format=False)
 test_evaluator = val_evaluator
 

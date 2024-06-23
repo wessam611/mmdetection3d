@@ -5,9 +5,44 @@
 # keys in the config.
 voxel_size = [0.32, 0.32, 6]
 model = dict(
-    type='MVXFasterRCNN',
+    type='MVXRFFasterRCNN',
+    rv_dropout_p=0.2,
+    bev_dropout_p=0.4,
+    rf_net=dict(
+        type='DLABackbone',
+        inC=6,
+        conv_dict={
+            'res_2':
+            dict(type='', kernel_size=3, in_C=32, out_Cs=[16, 32], coord_C=6)
+        },
+        num_block={
+            'res1': 2,
+            'res2a': 3,
+            'res2': 3,
+            'res3a': 5,
+            'res3': 5,
+            'agg1': 2,
+            'agg2': 2,
+            'agg2a': 1,
+            'agg3': 2,
+        },
+        num_C={
+            'res1': 64,
+            'res2a': 64,
+            'res2': 64,
+            'res3a': 128,
+            'res3': 128,
+            'agg1': 64,
+            'agg2': 64,
+            'agg2a': 64,
+            'agg3': 64,
+        },
+        add_data_sc=False,
+        fpn_strides=(1, 2, 4)),
+    dla_to_dist=[(30, 100), (15, 30), (0, 15)],
     data_preprocessor=dict(
-        type='Det3DDataPreprocessor',
+        type='DetRF3DDataPreprocessor',
+        range_xyz_coo=True,
         voxel=True,
         voxel_layer=dict(
             max_num_points=20,
@@ -41,21 +76,19 @@ model = dict(
         out_channels=[128, 128, 128]),
     pts_bbox_head=dict(
         type='Anchor3DHeadIoU',
-        num_classes=1,
-        in_channels=384,
-        feat_channels=384,
+        num_classes=3,
+        in_channels=384 + 64,
+        feat_channels=384 + 64,
         use_direction_classifier=True,
         anchor_generator=dict(
             type='AlignedAnchor3DRangeGenerator',
-            ranges=[
-                # [-74.88, -74.88, -0.0345, 74.88, 74.88, -0.0345],
+            ranges=[[-74.88, -74.88, -0.0345, 74.88, 74.88, -0.0345],
                     [-74.88, -74.88, 0, 74.88, 74.88, 0],
-                    # [-74.88, -74.88, -0.1188, 74.88, 74.88, -0.1188]
-                    ],
+                    [-74.88, -74.88, -0.1188, 74.88, 74.88, -0.1188]],
             sizes=[
-                # [4.73, 2.08, 1.77],  # car
+                [4.73, 2.08, 1.77],  # car
                 [0.91, 0.84, 1.74],  # pedestrian
-                # [1.81, 0.84, 1.77]  # cyclist
+                [1.81, 0.84, 1.77]  # cyclist
             ],
             rotations=[0, 1.57],
             reshape_out=False),
@@ -77,13 +110,13 @@ model = dict(
     train_cfg=dict(
         pts=dict(
             assigner=[
-                # dict(  # car
-                #     type='Max3DIoUAssigner',
-                #     iou_calculator=dict(type='BboxOverlapsNearest3D'),
-                #     pos_iou_thr=0.55,
-                #     neg_iou_thr=0.4,
-                #     min_pos_iou=0.4,
-                #     ignore_iof_thr=-1),
+                dict(  # car
+                    type='Max3DIoUAssigner',
+                    iou_calculator=dict(type='BboxOverlapsNearest3D'),
+                    pos_iou_thr=0.55,
+                    neg_iou_thr=0.4,
+                    min_pos_iou=0.4,
+                    ignore_iof_thr=-1),
                 dict(  # pedestrian
                     type='Max3DIoUAssigner',
                     iou_calculator=dict(type='BboxOverlapsNearest3D'),
@@ -91,13 +124,13 @@ model = dict(
                     neg_iou_thr=0.3,
                     min_pos_iou=0.3,
                     ignore_iof_thr=-1),
-                # dict(  # cyclist
-                #     type='Max3DIoUAssigner',
-                #     iou_calculator=dict(type='BboxOverlapsNearest3D'),
-                #     pos_iou_thr=0.5,
-                #     neg_iou_thr=0.3,
-                #     min_pos_iou=0.3,
-                #     ignore_iof_thr=-1),
+                dict(  # cyclist
+                    type='Max3DIoUAssigner',
+                    iou_calculator=dict(type='BboxOverlapsNearest3D'),
+                    pos_iou_thr=0.5,
+                    neg_iou_thr=0.3,
+                    min_pos_iou=0.3,
+                    ignore_iof_thr=-1),
             ],
             allowed_border=0,
             code_weight=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],

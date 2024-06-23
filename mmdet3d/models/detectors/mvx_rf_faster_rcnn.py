@@ -151,10 +151,10 @@ class MVXRFFasterRCNN(MVXFasterRCNN):
                     l2_dist_cur >= min_r).logical_and(l2_dist_cur < max_r)]
                 bev_vox_indices_filtered = bev_vox_indices[i][(
                     l2_dist_cur >= min_r).logical_and(l2_dist_cur < max_r)]
-                range_canvas[i, :, bev_vox_indices_filtered, :] = range_feat[
-                    i][:, range_inds_filtered]
+                range_canvas[i, :, bev_vox_indices_filtered.to(torch.int64), :] = range_feat[
+                    i][:, range_inds_filtered.to(torch.int64)]
             range_canvas[
-                i, :, bev_vox_indices[i], :][:,
+                i, :, bev_vox_indices[i].to(torch.int64), :][:,
                                              vox_range_indices[vox_range_mask][
                                                  ..., 1] == -1] = -torch.inf
 

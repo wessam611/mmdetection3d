@@ -20,7 +20,7 @@ from .transforms_3d import (AffineResize, BackgroundPointsFilter,
                             RandomDropPointsColor, RandomFlip3D,
                             RandomJitterPoints, RandomResize3D,
                             RandomShiftScale, Resize3D, VoxelBasedPointSampler,
-                            CurriculumDataAugmentation)
+                            CurriculumDataAugmentation, RandomObjectNoise)
 
 __all__ = [
     'ObjectSample', 'RandomFlip3D', 'ObjectNoise', 'GlobalRotScaleTrans',
@@ -36,5 +36,5 @@ __all__ = [
     'MultiViewWrapper', 'PhotoMetricDistortion3D', 'MonoDet3DInferencerLoader',
     'LidarDet3DInferencerLoader', 'PolarMix', 'LaserMix',
     'MultiModalityDet3DInferencerLoader', 'LoadWaymoFrame',
-    'CopyPasteRangePoints', 'CurriculumDataAugmentation', 'LoadPseudoLabels'
+    'CopyPasteRangePoints', 'CurriculumDataAugmentation', 'LoadPseudoLabels', 'RandomObjectNoise'
 ]

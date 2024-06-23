@@ -1,9 +1,10 @@
 # dataset settings
 dataset_type = 'IterWaymoDataset'
 # data_root = 'data/waymo/kitti_format/'
+# 'data/waymo/waymo_format/records_shuffled/validation/pre_data/'
 data_path = '/home/wessam/src/ransac_preprocessing/pointclouds/pkl_data_aligned/'
-train_split_path = '/home/wessam/src/ransac_preprocessing/pointclouds/train_split.txt'
-val_split_path = '/home/wessam/src/ransac_preprocessing/pointclouds/val_split.txt'
+train_split_path = '/home/wessam/src/ransac_preprocessing/pointclouds/train_split_cl.txt'
+val_split_path = '/home/wessam/src/ransac_preprocessing/pointclouds/val_split_cl.txt'
 
 backend_args = {}
 
@@ -19,13 +20,21 @@ eval_pipeline = [
         pkl_files_path=data_path,
         use_dim=[0, 1, 2, -1, -1],
         filter_nlz_points=False,
-        with_bbox_3d=False,
-        with_label_3d=False,
+        with_bbox_3d=True,
+        with_label_3d=True,
+        # range_index=True,
+        # range_image=True,
+        # norm_intensity=True,
+        # norm_elongation=True,
         shift_height=0),
     dict(
         type='Pack3DDetInputs',
         keys=[
-            'points', 'gt_bboxes_3d', 'gt_labels_3d'#, 'num_lidar_points_in_box'
+            'points', 'gt_bboxes_3d', 'gt_labels_3d'#, 'num_lidar_points_in_box' 'range_image', 'range_index', 
+        ],
+        meta_keys=[
+            'context', 'timestamp_micros', 'box_type_3d', 'box_mode_3d',
+            'sample_idx'
         ]
     )
 ]
@@ -45,4 +54,5 @@ val_dataloader = dict(
         box_type_3d='LiDAR',
         backend_args=backend_args,
         skips_n=1,
+        # files_txt=val_split_path,
         data_path=data_path))

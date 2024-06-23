@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import os
+import random
 import copy
 import pickle
 from glob import glob
@@ -1424,6 +1425,7 @@ class LoadWaymoFrame(BaseTransform):
                  with_bbox_3d: bool = True,
                  with_label_3d: bool = True,
                  pkl_files_path: str = None,
+                 range_dim=None,
                  shift_height=0):
         super().__init__()
         self.kitti_classes = ['Car', 'Pedestrian', 'Cyclist']
@@ -1446,6 +1448,7 @@ class LoadWaymoFrame(BaseTransform):
 
         self.coord_type = coord_type
         self.use_dim = use_dim
+        self.range_dim = range_dim
         self.norm_intensity = norm_intensity
         self.norm_elongation = norm_elongation
         self.shift_height = shift_height
@@ -1478,7 +1481,7 @@ class LoadWaymoFrame(BaseTransform):
     def _load_label_3d(self, gt_labels_3d, frame_label) -> dict:
         """"""
         kitti_label = self.class_mapping[self.type_list[frame_label.type]]
-        gt_labels_3d.append(self.kitti_classes.index(kitti_label))
+        gt_labels_3d.append(self.target_classes.index(kitti_label))
         return gt_labels_3d
 
     def _parse_projected_lidar_labels(self, results,
@@ -1550,14 +1553,9 @@ class LoadWaymoFrame(BaseTransform):
                 'range_index': np.array(N, )
                 'range_image': np.array(H, W, 6) - r0&r1 of TOP LiDAR
         """
-        if -1 in self.use_dim:
-            tmp = self.use_dim
-            tmp[tmp==-1] = 0
-            results['points'] = points[:, tmp]
-            points[:, self.use_dim==-1] = 0
-        else:
-            results['points'] = points[:, self.use_dim]
-        results['points'][:, self.use_dim==2] += self.shift_height
+        results['points'] = points[:, self.use_dim]
+        results['points'][:, np.asarray(self.use_dim)==-1] = 0
+        results['points'][:, np.asarray(self.use_dim)==2] += self.shift_height
         if self.norm_intensity:
             assert 3 in self.use_dim
             results['points'][:, self.use_dim.index(3)] = np.tanh(
@@ -1570,7 +1568,7 @@ class LoadWaymoFrame(BaseTransform):
         results['points'] = points_class(
             results['points'], points_dim=results['points'].shape[-1])
         if self.range_index:
-            results['range_index'] = range_index
+            results['range_index'] = range_index.astype(np.int32)
         if self.range_image:
             if frame is not None:
                 (range_images, camera_projections, seg_labels, range_image_top_pose
@@ -1595,7 +1593,7 @@ class LoadWaymoFrame(BaseTransform):
             results['points'] = results['points'][nlz_points != 1.0]
             if self.range_index:
                 results['range_index'] = results['range_index'][
-                    nlz_points != 1.0]
+                    nlz_points != 1.0].astype(np.int32)
         if self.reverse_index:
             assert self.range_image
             if self.range_index:
@@ -1607,6 +1605,17 @@ class LoadWaymoFrame(BaseTransform):
             reverse_inds = np.zeros(H * W * layers, np.int32) - 1
             reverse_inds[range_index] = np.arange(len(range_index))
             results['reverse_inds'] = reverse_inds.reshape((H * 2, W))
+            if self.range_dim is not None:
+                step = int(results['range_image'].shape[0]/self.range_dim)
+                results['range_image'] = results['range_image'][::step, :, :]
+                rev_index_c = results['reverse_inds'][::step, :]
+                rev_index_c = rev_index_c[rev_index_c != -1].reshape(-1)
+                results['points'] = results['points'][rev_index_c]
+                results['range_index'] = ((range_index[
+                    rev_index_c]*(1/(2*W))).astype(np.int32)*W + np.remainder(range_index[rev_index_c], W)).astype(np.int32)
+                reverse_inds = np.zeros((H * W * layers)//step, np.int32) - 1
+                reverse_inds[results['range_index']] = np.arange(len(results['range_index']), dtype=np.int32)
+                results['reverse_inds'] = reverse_inds.reshape(((H * 2)//step, W))
         return results
 
     def transform(self, pkl_path) -> dict:
@@ -1619,10 +1628,20 @@ class LoadWaymoFrame(BaseTransform):
         Returns:
             dict: the results dict containing the result data and labels
         """
+        lbl_path = None
+        if isinstance(pkl_path, tuple):
+            pkl_path, lbl_path = pkl_path
         results = {}
+        # results['sample_idx'] = np.asarray([0])
+        # results['context'] = np.asarray([0])
+        # results['timestamp_micros'] = np.asarray([0])
         frame = open_dataset.Frame()
         with open(pkl_path, 'rb') as pkl_file:
             pkl_dict = pickle.load(pkl_file)
+            
+        ctx = pkl_path.split('/')[-1]
+        timesss = int(ctx.split('_')[1].split('.')[0])
+        ctx = ctx.split('_')[0]
         points = pkl_dict['points']
         nlz_points = pkl_dict['nlz_points']
         range_index = pkl_dict['range_index'].astype(np.int32)
@@ -1638,10 +1657,42 @@ class LoadWaymoFrame(BaseTransform):
             results['context'] = frame.context.name
             results['timestamp_micros'] = frame.timestamp_micros
         else:
+            if self.range_image:
+                results['range_image'] = np.expand_dims(pkl_dict['range_image'], 2)
             results = self._load_frame_inputs(results, None, points, nlz_points,
                                             range_index)
             self.box_type_3d, self.box_mode_3d = get_box_type(self.coord_type)
             results['box_type_3d'] = self.box_type_3d
             results['box_mode_3d'] = self.box_mode_3d
-
+            if lbl_path is not None:
+                with open(lbl_path, 'rb') as pkl_file:
+                    lbl_dict = pickle.load(pkl_file)
+                results['gt_bboxes_3d'] = LiDARInstance3DBoxes(lbl_dict['bboxes'])
+                results['gt_scores_3d'] = lbl_dict['scores']
+                results['gt_labels_3d'] = np.zeros(len(results['gt_bboxes_3d']), dtype=np.int64)+1
+                results['gt_labels_3d'][results['gt_scores_3d']<0.25] = -1
+                results['sample_idx'] = -1
+                results['context'] = ctx#bytes(random.Random().randint(0, 255))
+                results['timestamp_micros'] = timesss#random.Random().randint(1000, 100000000000000)
+        if 'gt_bboxes_3d' not in results:
+            results['gt_bboxes_3d'] = LiDARInstance3DBoxes(np.zeros((0, 7)))
+        if 'gt_scores_3d' not in results:
+            results['gt_scores_3d'] = np.asarray([0])
+        if 'gt_labels_3d' not in results:
+            results['gt_labels_3d'] = np.asarray([0])
+        
+            if 'sample_idx' not in results:
+                results['sample_idx'] = -1
+            if 'context' not in results:
+                results['context'] = ctx#bytes(random.Random().randint(0, 255))
+            if 'timestamp_micros' not in results:
+                results['timestamp_micros'] = timesss#random.Random().randint(1000, 100000000000000)
+        # file_name = pkl_path.split('/')[-1]
+        # if not os.path.exists("/home/wessam/src/ransac_preprocessing/pointclouds/aug/before/"):
+        #     os.makedirs('/home/wessam/src/ransac_preprocessing/pointclouds/aug/before/')
+        # with open(os.path.join('/home/wessam/src/ransac_preprocessing/pointclouds/aug/before/', file_name), 'wb') as f:
+        #     pickle.dump({
+        #         'points': results['points'].tensor.numpy().tolist()
+        #     }, f)
+        # results['path'] = pkl_path.split('/')[-1]
         return results

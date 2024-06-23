@@ -45,10 +45,10 @@ class ST3DTrainLoop(EpochBasedTrainLoop):
         else:
             self.target_dataloader = target_dataloader
 
-        if isinstance(self.target_dataloader.dataset, IterWaymoDataset):
-            self.target_dataloader.dataset.set_ps_updater(
-                self.runner.update_loop.ps_label_updater
-            )
+        # if isinstance(self.target_dataloader.dataset, IterWaymoDataset):
+        self.target_dataloader.dataset.dataset.set_ps_updater(
+            self.runner.update_loop.ps_label_updater
+        )
         super(ST3DTrainLoop, self).__init__(runner=runner, dataloader=self.source_dataloader, *args, **kwargs)
         self.ps_update_start = ps_update_start
         self.ps_update_interval = ps_update_interval
@@ -233,10 +233,14 @@ class ST3DUpdateLoop(BaseLoop):
             raise ValueError('pseudo label updater is only p as a '+
                              'dictionary describing a function under '+
                                 'the FUNCTIONS registry')
-        if isinstance(self.train_dataloader.dataset, IterWaymoDataset):
-            self.train_dataloader.dataset.set_ps_updater(
-                self.ps_label_updater
-            )
+        # if isinstance(self.train_dataloader.dataset, IterWaymoDataset):
+        self.train_dataloader.dataset.dataset.set_ps_updater(
+            self.ps_label_updater
+        )
+        # else:
+        #     print("*******************"*1000)
+        #     print(self.train_dataloader.dataset)
+        #     raise 'kjhg'
         if isinstance(self.val_dataloader.dataset, IterWaymoDataset):
             self.val_dataloader.dataset.set_ps_updater(
                 self.ps_label_updater
